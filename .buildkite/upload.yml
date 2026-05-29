@@ -1,0 +1,11 @@
+# This is the ONLY thing Buildkite needs configured in the pipeline's own
+# "Steps" settings (Pipeline -> Settings -> Steps). It reads and uploads the
+# real pipeline definition from .buildkite/pipeline.yml in the repo, so all
+# actual steps live in version control rather than in the Buildkite UI.
+#
+# Copy the `steps:` block below verbatim into that Steps field. (Buildkite's
+# default new-pipeline config is already equivalent to this; committing it here
+# keeps the canonical value in the repo.)
+steps:
+  - label: ":pipeline: upload"
+    command: buildkite-agent pipeline upload .buildkite/pipeline.yml

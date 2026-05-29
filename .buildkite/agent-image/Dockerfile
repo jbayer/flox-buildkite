@@ -5,12 +5,16 @@
 # Warming the Nix store across builds is handled separately by a cache volume on
 # /nix (see .buildkite/pipeline.yml).
 #
-# Build/registration: push this image to the Buildkite internal container
-# registry (or build it via the Dockerfile editor in the Buildkite UI), then
-# select it on your hosted queue under: Base image -> Agent image.
+# Registration (recommended path): Agents -> your cluster -> Agent Images ->
+# New Image. Paste this file MINUS the `FROM` line below -- the UI pre-fills and
+# locks `FROM` to buildkite/hosted-agent-base for the queue's architecture. Then
+# attach the image to the queue under: Queues -> queue -> Base image -> Agent image.
 #
-# Arch: defaults to aarch64 (matches an arm64 hosted queue). For an amd64 queue,
-# build with --build-arg FLOX_ARCH=x86_64.
+# Arch: the UI editor builds the Dockerfile as-is (no --build-arg), so the
+# FLOX_ARCH *default* below is what gets used. It defaults to aarch64 (arm64
+# queue); change the default to x86_64 for an amd64 queue. When building this
+# file locally/in a registry with the FROM line, you can instead pass
+# `--build-arg FLOX_ARCH=x86_64`.
 
 FROM buildkite/hosted-agent-base:latest
 
