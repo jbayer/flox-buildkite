@@ -1,0 +1,29 @@
+# Run a self-hosted Buildkite agent with Flox and a reliably warm /nix.
+#
+#   1. Get an agent token: Buildkite -> Agents -> your cluster -> Agent Tokens.
+#   2. cp .env.example .env  and paste the token into it.
+#   3. docker compose up --build
+#
+# The named volume `nix-store` is mounted at /nix. On first `up`, Docker copies
+# the image's baked /nix into it (Flox + SEED_PACKAGES), and it persists from
+# then on -- so the store stays warm across builds and `docker compose restart`.
+name: flox-buildkite-self-hosted
+
+services:
+  agent:
+    build:
+      context: .
+    # The image's entrypoint is buildkite-agent; `start` launches the agent.
+    command: start
+    environment:
+      # Read from .env (see .env.example). Fails fast if unset.
+      BUILDKITE_AGENT_TOKEN: ${BUILDKITE_AGENT_TOKEN:?set BUILDKITE_AGENT_TOKEN (see .env.example)}
+      # Tag the agent so a pipeline can target it with:
+      #   agents: { queue: "flox-self-hosted" }
+      BUILDKITE_AGENT_TAGS: "queue=flox-self-hosted"
+    volumes:
+      - nix-store:/nix
+    restart: unless-stopped
+
+volumes:
+  nix-store:

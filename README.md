@@ -96,6 +96,10 @@ another.
   pipeline.yml             real steps: validate + activate, with the /nix cache volume
   lib/ensure-nix.sh        seeds the /nix cache volume from /opt/nix-seed when cold
   upload.yml               the one-line pipeline-upload step for Buildkite settings
+self-hosted/               run a self-hosted agent locally (reliably warm /nix)
+  Dockerfile               buildkite-agent + Flox
+  docker-compose.yml       agent + persistent /nix named volume
+  .env.example             where the agent token goes
 .flox/                     a small Flox environment (jq + hello) to activate
 ```
 
@@ -198,6 +202,57 @@ steps:
 ```
 
 …or activate once for every step via an agent `environment` hook.
+
+---
+
+# Self-hosted agents (a reliably warm `/nix`)
+
+Everything above is for Buildkite *hosted* agents, where the `/nix` cache volume
+is best-effort. If you run **self-hosted** agents you control the disk, so `/nix`
+can persist **reliably** — no locality lottery. The `self-hosted/` directory runs
+one as a local Docker container so you can see it end to end.
+
+How it stays warm: the agent runs as a long-lived container with a Docker **named
+volume** mounted at `/nix`. On first `up`, Docker copies the image's baked `/nix`
+(Flox + `SEED_PACKAGES`) into the empty volume, so Flox works immediately — and
+the volume persists across builds *and* `docker compose restart`. The same
+`.buildkite/pipeline.yml` runs unchanged; its `cache:` block is a hosted-agent
+directive that self-hosted agents simply ignore, and `ensure-nix.sh` becomes a
+no-op because the volume is already warm.
+
+## Run it locally
+
+```bash
+cd self-hosted
+cp .env.example .env          # then paste your token (Agents -> cluster -> Agent Tokens)
+docker compose up --build     # builds the agent image and connects it to Buildkite
+```
+
+The agent registers under the queue tag `flox-self-hosted`. Point a pipeline step
+at it:
+
+```yaml
+steps:
+  - label: ":flox: activate"
+    agents: { queue: "flox-self-hosted" }
+    command: flox activate -- bash -c 'hello && jq --version'
+```
+
+Trigger a build, then trigger a **second** one: the first populates `/nix`, and
+every build after — including after `docker compose restart` — finds it already
+warm (instant activate, no download). Confirm persistence directly:
+
+```bash
+docker volume inspect flox-buildkite-self-hosted_nix-store
+docker compose exec agent du -sh /nix
+```
+
+## When to prefer self-hosted vs hosted
+
+- **Hosted + cache volume + seed:** zero infra to run; warm cache is best-effort.
+- **Self-hosted + persistent `/nix`:** you run the agent, but the warm cache is
+  reliable and there's no per-build seed copy. Best when a large closure makes
+  consistent warmth worth operating an agent.
 
 ## Caveats
 
