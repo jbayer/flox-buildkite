@@ -294,9 +294,11 @@ How it stays warm: the agent runs as a long-lived container with a Docker
 **named volume** mounted at `/nix`. On first `up`, Docker copies the image's
 baked `/nix` (Flox + `SEED_PACKAGES`) into the empty volume, so Flox works
 immediately — and the volume persists across builds *and*
-`docker compose restart`. The same `.buildkite/pipeline.yml` runs unchanged;
-its `cache:` block is a hosted-agent directive that self-hosted agents simply
-ignore, and `ensure-nix.sh` becomes a no-op because the volume is already warm.
+`docker compose restart`. The steps run unchanged from the hosted setup:
+`pipeline.self-hosted.yml` needs no `cache:` block, and even the hosted
+`pipeline.yml` works as-is because its `cache:` block is a hosted-agent
+directive self-hosted agents ignore and `ensure-nix.sh` becomes a no-op on the
+already-warm volume.
 
 ## Run it locally
 
@@ -306,14 +308,14 @@ cp .env.example .env          # then paste your token (Agents -> cluster -> Agen
 docker compose up --build     # builds the agent image and connects it to Buildkite
 ```
 
-The agent registers under the queue tag `flox-self-hosted`. Point a pipeline
-step at it:
+The agent registers under the queue tag `flox-self-hosted`. Point your
+pipeline's **Steps** (Pipeline → Settings → Steps) at the version-controlled
+self-hosted pipeline, which targets that queue:
 
 ```yaml
 steps:
-  - label: ":flox: activate"
-    agents: { queue: "flox-self-hosted" }
-    command: flox activate -- hello
+  - label: ":pipeline: upload"
+    command: buildkite-agent pipeline upload .buildkite/pipeline.self-hosted.yml
 ```
 
 Trigger a build, then trigger a **second** one: the first populates `/nix`, and
