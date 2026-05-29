@@ -36,19 +36,19 @@ PHASE 1 · bake into the CI base image                      [ RELIABLE ]
 PHASE 2 · Buildkite cache volume on /nix                [ BEST-EFFORT ]
    │  A volume persists whatever a build pulled into /nix/store, so
    │  later builds reuse it instead of re-downloading.
-   └▶ re-attach depends on locality — warmth is a bonus, not a promise.
+   └▶ re-attach depends on locality, so reuse is not guaranteed.
 
                               ↓
    anything still missing is downloaded cold (slower, but always works)
 ```
 
-Phase 1 is the floor — always there. Phase 2 raises the ceiling whenever builds
-happen to land back on the same volume.
+Phase 1 is always present. Phase 2 only helps when a build happens to land back
+on the same volume.
 
 ### Self-hosted agents — you control the storage
 
-On your own infrastructure there's no locality lottery: you place `/nix/store`
-— and an optional backup cache layer — right next to the runners.
+On your own infrastructure you place `/nix/store` — and an optional backup cache
+layer — right next to the runners, so reuse is predictable.
 
 ```
 SELF-HOSTED AGENTS — you own the disk, so warmth is RELIABLE
@@ -111,8 +111,8 @@ on locality** — "back-to-back builds don't reliably reuse the same volume." So
 - **Low-frequency pipelines see mostly cold mounts.** Each build tends to land on
   a fresh instance without your committed copy → `Mounted cache on /nix (size 4.0K)`
   → the seed runs. Hit rate rises with build frequency but is never guaranteed.
-- That's *why* the seed pattern exists: every cold mount **self-heals** instead of
-  failing. Warm hits are a bonus, not a contract.
+- That's *why* the seed pattern exists: every cold mount restores itself instead
+  of failing. Warm hits are not guaranteed.
 
 **Reading the log:**
 - `Mounted cache on /nix (size <large>)` + `--- /nix cache volume is warm … skipping
@@ -259,7 +259,7 @@ Run a few builds and watch the `Mounted cache on /nix (size …)` line and
 documented best-effort behavior, not a misconfiguration (see *Best-effort, not
 durable* above). Consecutive builds often land on different agent instances and
 so don't share the volume. Warm-hit rate climbs as the pipeline runs more often;
-the seed makes every cold mount self-healing meanwhile.
+the seed keeps every cold mount working in the meantime.
 
 ## Using Flox in real pipelines
 
@@ -278,7 +278,7 @@ steps:
 
 Everything above is for Buildkite *hosted* agents, where the `/nix` cache volume
 is best-effort. If you run **self-hosted** agents you control the disk, so `/nix`
-can persist **reliably** — no locality lottery. The `self-hosted/` directory runs
+can persist **reliably**, without depending on locality. The `self-hosted/` directory runs
 one as a local Docker container so you can see it end to end.
 
 How it stays warm: the agent runs as a long-lived container with a Docker **named
