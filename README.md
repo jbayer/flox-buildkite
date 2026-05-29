@@ -44,10 +44,9 @@ the runbook below.
 
 ## Prerequisite — know your queue's architecture
 
-You need a Buildkite **cluster** with a **Linux hosted queue**. Note whether that
-queue is **arm64** or **amd64** (Agents → cluster → Queues → the queue shows its
-architecture). It must match `FLOX_ARCH` in the Dockerfile (`aarch64` for arm64,
-`x86_64` for amd64). No queue yet? Agents → cluster → **New Queue** → **Buildkite
+You need a Buildkite **cluster** with a **Linux hosted queue** (either **arm64**
+or **amd64** — the Dockerfile auto-detects the architecture, so no edits are
+needed for either). No queue yet? Agents → cluster → **New Queue** → **Buildkite
 hosted** → Linux → pick the architecture.
 
 ## Step 1 — Create the custom agent image
@@ -57,9 +56,8 @@ hosted** → Linux → pick the architecture.
 3. **Name:** `flox-agent`.
 4. **Dockerfile field:** the `FROM` line is **pre-filled by Buildkite and cannot
    be edited** (it pins `buildkite/hosted-agent-base` for the queue's arch). Paste
-   `.buildkite/agent-image/Dockerfile` **minus its `FROM` line**.
-   - ⚠️ The UI builds the Dockerfile as-is (no `--build-arg`), so the **`FLOX_ARCH`
-     default value is what's used** — set it to `x86_64` if your queue is amd64.
+   `.buildkite/agent-image/Dockerfile` **minus its `FROM` line**. No arch edits
+   needed — the Flox install auto-detects `x86_64` vs `aarch64` via `uname -m`.
 5. **Create Agent Image.** Buildkite builds it; the final `RUN flox --version`
    means a successful build already proves the install works.
 

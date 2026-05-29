@@ -10,11 +10,8 @@
 # locks `FROM` to buildkite/hosted-agent-base for the queue's architecture. Then
 # attach the image to the queue under: Queues -> queue -> Base image -> Agent image.
 #
-# Arch: the UI editor builds the Dockerfile as-is (no --build-arg), so the
-# FLOX_ARCH *default* below is what gets used. It defaults to aarch64 (arm64
-# queue); change the default to x86_64 for an amd64 queue. When building this
-# file locally/in a registry with the FROM line, you can instead pass
-# `--build-arg FLOX_ARCH=x86_64`.
+# Arch: auto-detected via `uname -m` at build time (x86_64 or aarch64), so the
+# same Dockerfile works unchanged on amd64 or arm64 queues -- no edits needed.
 
 FROM buildkite/hosted-agent-base:latest
 
@@ -32,12 +29,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Flox. The .deb bundles its own Nix, so there is no separate Nix install.
+# - `uname -m` gives x86_64 / aarch64, which matches Flox's .deb URL naming, so
+#   the image builds correctly on either architecture with no edits.
+# - install via `apt-get install ./flox.deb` (not `dpkg -i`) so apt resolves any
+#   dependencies in one step.
 ARG FLOX_VERSION=1.12.1
-ARG FLOX_ARCH=aarch64
-RUN curl -fsSL "https://downloads.flox.dev/by-env/stable/deb/flox-${FLOX_VERSION}.${FLOX_ARCH}-linux.deb" \
-        -o /tmp/flox.deb \
-    && dpkg -i /tmp/flox.deb \
-    && rm /tmp/flox.deb
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    curl -fsSL "https://downloads.flox.dev/by-env/stable/deb/flox-${FLOX_VERSION}.${arch}-linux.deb" \
+        -o /tmp/flox.deb; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends /tmp/flox.deb; \
+    rm -rf /tmp/flox.deb /var/lib/apt/lists/*
 
 # Single-user mode: bypass the nix-daemon. There is no systemd as PID 1 in the
 # agent container, so Nix operates on the store directly as the job's user.
