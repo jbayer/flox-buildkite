@@ -1,7 +1,72 @@
 # flox-buildkite
 
 Test repository for running [Flox](https://flox.dev) on [Buildkite](https://buildkite.com)
-hosted agents — fast, reproducibly, with minimal per-build install required.
+— both **hosted** and **self-hosted** agents — fast and reproducibly, with
+minimal per-build install required.
+
+## How the caching works (the mental model)
+
+New to Flox/Nix? Here's the one idea everything below rests on: **everything Flox
+needs lives in a single directory, `/nix/store`.** Flox itself, every language
+runtime, every package — all of it. (`/usr/bin/flox` is just a symlink into
+`/nix/store`.) So "make CI fast" reduces to one thing: **have as much of
+`/nix/store` already present as possible when a build starts**, instead of
+downloading it mid-build.
+
+```
+   flox activate ──▶ needs its packages present in /nix/store
+                       ├─ already there?  →  instant       ✅
+                       └─ missing?        →  download it    ⏳  ← the cost we remove
+```
+
+### Hosted agents — two phases fill `/nix/store`
+
+You don't own the machine, so you stack two independent caching layers:
+
+```
+HOSTED AGENTS — two phases keep /nix/store full before a build runs
+────────────────────────────────────────────────────────────────────
+
+PHASE 1 · bake into the CI base image                      [ RELIABLE ]
+   │  The custom agent image installs Flox + commonly used runtime
+   │  packages into /nix/store at image-build time.
+   └▶ present on EVERY build, guaranteed, zero per-build install.
+
+                              +
+
+PHASE 2 · Buildkite cache volume on /nix                [ BEST-EFFORT ]
+   │  A volume persists whatever a build pulled into /nix/store, so
+   │  later builds reuse it instead of re-downloading.
+   └▶ re-attach depends on locality — warmth is a bonus, not a promise.
+
+                              ↓
+   anything still missing is downloaded cold (slower, but always works)
+```
+
+Phase 1 is the floor — always there. Phase 2 raises the ceiling whenever builds
+happen to land back on the same volume.
+
+### Self-hosted agents — you control the storage
+
+On your own infrastructure there's no locality lottery: you place `/nix/store`
+— and an optional backup cache layer — right next to the runners.
+
+```
+SELF-HOSTED AGENTS — you own the disk, so warmth is RELIABLE
+────────────────────────────────────────────────────────────────────
+
+    agent runner (your infra)
+         │  reads / writes
+         ▼
+    /nix/store on persistent storage you control           ← warm across
+    (local disk or a mounted volume, next to the runner)      builds & restarts
+         │  cold store or brand-new runner? repopulate fast from…
+         ▼
+    backup cache layer — an S3-compatible Nix binary cache near the runners
+
+  You keep /nix/store and its backup close to the agents, so a build
+  almost never has to download from upstream.
+```
 
 ## The approach
 
