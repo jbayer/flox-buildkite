@@ -1,7 +1,7 @@
 # flox-buildkite
 
 Test repository for running [Flox](https://flox.dev) on [Buildkite](https://buildkite.com)
-hosted agents — fast, reproducibly, with no per-build install.
+hosted agents — fast, reproducibly, with minimal per-build install required.
 
 ## The approach
 
