@@ -1,0 +1,35 @@
+# Buildkite pipeline for Flox on hosted agents.
+#
+# Prereq: the queue uses the custom agent image from .buildkite/agent-image/,
+# so `flox` is already installed (no install step here).
+#
+# The cache volume below persists /nix across builds. The first build populates
+# the Nix store from the Flox Catalog (cold); subsequent builds reuse it and
+# `flox activate` is fast. Cache volumes are best-effort with ~14-day retention,
+# so the pipeline must still work cold -- it does, activation just re-downloads.
+cache:
+  name: "flox-nix-store"
+  size: "50g"
+  paths:
+    - "/nix"
+
+steps:
+  - label: ":mag: validate agent + flox"
+    command: |
+      echo "--- runtime user / environment"
+      whoami
+      id
+      echo "NIX_REMOTE=$NIX_REMOTE"
+      echo "--- flox is preinstalled in the agent image"
+      flox --version
+      echo "--- /nix is writable by the job user?"
+      test -w /nix && echo "yes: /nix writable" || echo "NO: /nix not writable"
+
+  - wait
+
+  - label: ":flox: activate environment"
+    command: |
+      echo "--- first activation (cold unless /nix cache volume is warm)"
+      time flox activate -- bash -c 'hello && jq --version'
+      echo "--- second activation (store now warm in this job)"
+      time flox activate -- true
