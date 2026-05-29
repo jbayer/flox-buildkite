@@ -42,7 +42,12 @@ RUN flox --version
 
 # Bake common packages into the store (same knob as the hosted image). With a
 # persistent /nix volume these are present reliably on every build.
-ARG SEED_PACKAGES="hello jq"
+#
+# `hello` mirrors the CI smoke-test sentinel in .flox/env/manifest.toml so the
+# pipeline's `flox activate -- hello` is warm. OPTIMIZATION ONLY: this seed never
+# decides what `flox activate` exposes (the repo manifest does). If this drifts
+# from the manifest, the sentinel is just pulled cold once, never missing.
+ARG SEED_PACKAGES="hello"
 RUN set -eux; \
     if [ -n "$SEED_PACKAGES" ]; then \
         mkdir -p /opt/seed-env; \

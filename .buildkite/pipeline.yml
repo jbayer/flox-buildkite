@@ -9,8 +9,8 @@
 #   - Flox lives under /nix/store, so an empty volume would shadow the baked-in
 #     Flox. `.buildkite/lib/ensure-nix.sh` seeds the volume from /opt/nix-seed
 #     when it is cold, restoring a usable Flox; on a warm volume it is a no-op.
-#   - Env packages that `flox activate` pulls (jq, hello) then persist in the
-#     volume, so later builds activate without re-downloading them.
+#   - Env packages that `flox activate` pulls then persist in the volume, so
+#     later builds activate without re-downloading them.
 cache:
   name: "flox-nix-store"
   # Size is a cap, not a reservation -- set it comfortably above your warm /nix
@@ -42,8 +42,9 @@ steps:
       bash .buildkite/lib/ensure-nix.sh
       echo "--- /nix store size before activate"
       du -sh /nix 2>/dev/null
-      echo "--- activate the repo environment and run real package binaries"
-      echo "    (cold build: downloads jq+hello into the volume; warm build: instant)"
-      time flox activate -- bash -c 'hello && jq --version'
+      echo "--- activate the repo environment and run the sentinel package binary"
+      echo "    (cold build: downloads the env closure into the volume; warm build: instant)"
+      echo "    'hello' is the smoke-test sentinel pinned in .flox/env/manifest.toml"
+      time flox activate -- hello
       echo "--- /nix store size after activate (grows cold->warm as packages land)"
       du -sh /nix 2>/dev/null

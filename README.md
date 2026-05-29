@@ -100,7 +100,8 @@ self-hosted/               run a self-hosted agent locally (reliably warm /nix)
   Dockerfile               buildkite-agent + Flox
   docker-compose.yml       agent + persistent /nix named volume
   .env.example             where the agent token goes
-.flox/                     a small Flox environment (jq + hello) to activate
+.flox/                     a small Flox environment whose `hello` package is the
+                           CI smoke-test sentinel (single source of truth)
 ```
 
 ## How Flox runs single-user in the container
@@ -112,7 +113,7 @@ user. Because Buildkite chooses the job's user and forbids changing
 (`chmod -R a+rwX /nix`) instead of chowning it to a user we create.
 
 This was verified locally as a non-root user with `NIX_REMOTE=auto`: `flox activate`
-works and package binaries (`hello`, `jq`) run. The on-Buildkite confirmation is
+works and the `hello` package binary runs. The on-Buildkite confirmation is
 the runbook below.
 
 ---
@@ -168,11 +169,16 @@ Click **New Build** → Create Build on `main`, then check:
   - `command -v flox` → `/usr/bin/flox`
   - `yes: /nix writable`
 - **`:flox: activate environment`** step →
-  - `Hello, world!` (GNU `hello` ran)
-  - `jq-1.8.1`
+  - `Hello, world!` (GNU `hello`, the sentinel, ran)
   - exit **0**
 
 ✅ That's the acceptance test: **`flox activate` works and a real package binary runs.**
+
+The step runs `flox activate -- hello`. `hello` is the **smoke-test sentinel**
+pinned in `.flox/env/manifest.toml` — the single source of truth for what the
+pipeline can run. The agent images' `SEED_PACKAGES` mirror it only to keep that
+binary *warm*; they never decide whether it's available (the manifest does), so
+changing `SEED_PACKAGES` can't break the test.
 
 > ⚠️ The Dockerfile carries the `/opt/nix-seed` stash, so if you enabled caching
 > after a first attempt, **rebuild the `flox-agent` image** before this build.
@@ -235,7 +241,7 @@ at it:
 steps:
   - label: ":flox: activate"
     agents: { queue: "flox-self-hosted" }
-    command: flox activate -- bash -c 'hello && jq --version'
+    command: flox activate -- hello
 ```
 
 Trigger a build, then trigger a **second** one: the first populates `/nix`, and

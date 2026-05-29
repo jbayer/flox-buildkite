@@ -7,8 +7,12 @@ schema-version = "1.12.0"
 ##  $ flox show gum     <- show all versions of a package
 ## -------------------------------------------------------------------
 [install]
+# `hello` is the CI smoke-test SENTINEL. The .buildkite pipelines run
+# `flox activate -- hello` to prove the repo env activates and a real package
+# binary executes. This manifest is the single source of truth for what the
+# pipeline can run -- do NOT remove hello. (The Dockerfiles' SEED_PACKAGES only
+# control how *warm*/fast that binary is, never whether it exists.)
 hello.pkg-path = "hello"
-jq.pkg-path = "jq"
 # gum.pkg-path = "gum"
 # gum.version = "^0.14.5"
 
@@ -27,7 +31,6 @@ GREETING = "flox environment is active"
 [hook]
 on-activate = '''
   echo "[flox hook] $GREETING"
-  echo "[flox hook] jq:    $(command -v jq)"
   echo "[flox hook] hello: $(command -v hello)"
 '''
 

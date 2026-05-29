@@ -70,7 +70,13 @@ RUN flox --version
 # Caveat: a baked package only yields a runtime cache hit when a project env
 # resolves to the SAME store path (same version, same catalog). Bake the
 # versions your projects actually use.
-ARG SEED_PACKAGES="hello jq"
+#
+# `hello` mirrors the CI smoke-test sentinel in .flox/env/manifest.toml so the
+# pipeline's `flox activate -- hello` is warm. It is an OPTIMIZATION ONLY: this
+# seed never decides what `flox activate` exposes (the repo manifest does). If
+# this list drifts from the manifest, the sentinel is merely pulled cold
+# (slower) on first activate -- it is never missing.
+ARG SEED_PACKAGES="hello"
 RUN set -eux; \
     if [ -n "$SEED_PACKAGES" ]; then \
         mkdir -p /opt/seed-env; \

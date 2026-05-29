@@ -7,9 +7,14 @@
 # lottery, no best-effort caveat.
 #
 # This pipeline's job is to make that warmth *visible*. Run a build, then run a
-# second build: build #1 downloads jq+hello (you'll see flox realise them and a
-# multi-second `time`); build #2 prints no download output, an already-large
+# second build: build #1 downloads the env's closure (you'll see flox realise it
+# and a multi-second `time`); build #2 prints no download output, an already-large
 # /nix at job start, and a sub-second activate. That delta is the proof.
+#
+# It exercises `hello`, the smoke-test sentinel pinned in .flox/env/manifest.toml
+# (the single source of truth for what's installed). No package name is duplicated
+# here: changing the manifest changes what runs; changing the images' SEED_PACKAGES
+# only changes how warm it is.
 #
 # Wire it up: set the pipeline's Steps (Pipeline -> Settings -> Steps) to
 #   - command: buildkite-agent pipeline upload .buildkite/pipeline.self-hosted.yml
@@ -21,14 +26,14 @@ steps:
     command: |
       echo "--- /nix size at job START (warm => already large; cold #1 => just the baked store)"
       du -sh /nix 2>/dev/null
-      echo "--- /nix/store path count at START (warm #2 already includes jq+hello)"
+      echo "--- /nix/store path count at START (warm #2 already includes the env closure)"
       ls /nix/store | wc -l
       echo "--- flox on PATH?"
       command -v flox
-      echo "--- activate the repo env and run real package binaries (timed)"
-      echo "    cold #1: flox downloads jq+hello -> multi-second 'real'"
-      echo "    warm #2: no download output       -> sub-second 'real'"
-      time flox activate -- bash -c 'hello && jq --version'
+      echo "--- activate the repo env and run the sentinel package binary (timed)"
+      echo "    cold #1: flox downloads the env closure -> multi-second 'real'"
+      echo "    warm #2: no download output             -> sub-second 'real'"
+      time flox activate -- hello
       echo "--- /nix size AFTER activate (grows once on #1, then holds across builds)"
       du -sh /nix 2>/dev/null
       echo "--- /nix/store path count AFTER"
