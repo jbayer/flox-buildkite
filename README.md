@@ -63,11 +63,36 @@ persists `/nix` naturally. On hosted agents the volume is the best available, an
 it's worth it only when the env closure is large enough that re-downloading it
 costs more than the ~seconds the seed adds.
 
+### Baking common packages into the seed (`SEED_PACKAGES`)
+
+The cache volume is best-effort, so cold mounts happen. To make even cold builds
+fast for the heavy, common dependencies (language runtimes, compilers,
+toolchains), **bake them into the image** — they then live in `/opt/nix-seed` and
+land in `/nix` on every cold seed, so `flox activate` finds them already present.
+
+Edit the `SEED_PACKAGES` arg in `agent-image/Dockerfile` (space-separated Flox
+pkg-paths) and rebuild the image:
+
+```dockerfile
+ARG SEED_PACKAGES="nodejs python3 go"      # or "nodejs@20 rustc cargo gcc", etc.
+```
+
+The build runs `flox install $SEED_PACKAGES` to realize those closures into the
+store before stashing the seed. This is **reliable** (unlike the volume) because
+it's part of the image — at the cost of rebuilding the image when the list
+changes. It complements the volume: baked packages cover cold mounts; the volume
+additionally captures whatever each project env pulls at runtime.
+
+**Caveat:** a baked package only produces a runtime cache hit when a project env
+resolves to the *same* store path (same version from the same catalog). Bake the
+versions your projects actually use, or you'll bake one version and download
+another.
+
 ## Layout
 
 ```
 .buildkite/
-  agent-image/Dockerfile   custom hosted-agent image: Flox preinstalled + /opt/nix-seed
+  agent-image/Dockerfile   custom hosted-agent image: Flox + SEED_PACKAGES + /opt/nix-seed
   pipeline.yml             real steps: validate + activate, with the /nix cache volume
   lib/ensure-nix.sh        seeds the /nix cache volume from /opt/nix-seed when cold
   upload.yml               the one-line pipeline-upload step for Buildkite settings
@@ -106,6 +131,9 @@ hosted** → Linux → pick the architecture.
    be edited** (it pins `buildkite/hosted-agent-base` for the queue's arch). Paste
    `.buildkite/agent-image/Dockerfile` **minus its `FROM` line**. No arch edits
    needed — the Flox install auto-detects `x86_64` vs `aarch64` via `uname -m`.
+   - To bake common packages (language runtimes, etc.) into the store, edit the
+     `SEED_PACKAGES` arg before creating the image — see *Baking common packages*
+     above.
 5. **Create Agent Image.** Buildkite builds it; the final `RUN flox --version`
    means a successful build already proves the install works.
 

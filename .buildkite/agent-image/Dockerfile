@@ -5,6 +5,10 @@
 # Warming the Nix store across builds is handled separately by a cache volume on
 # /nix (see .buildkite/pipeline.yml).
 #
+# Common packages (language runtimes, compilers, toolchains) can be baked into the
+# store at build time via the SEED_PACKAGES arg below, so they are present even on
+# a cold cache volume.
+#
 # Registration (recommended path): Agents -> your cluster -> Agent Images ->
 # New Image. Paste this file MINUS the `FROM` line below -- the UI pre-fills and
 # locks `FROM` to buildkite/hosted-agent-base for the queue's architecture. Then
@@ -47,14 +51,39 @@ RUN set -eux; \
 # This is the key line that makes Flox work in a container.
 ENV NIX_REMOTE=auto
 
-# Buildkite hosted agents choose the job's runtime user and forbid changing
-# USER / UID / GID in the Dockerfile, so we cannot chown /nix to a user we make.
-# Instead make the store traversable and writable by whatever user runs the job,
-# so `flox activate` can add store paths at runtime.
-RUN chmod -R a+rwX /nix
-
-# Fail the image build early if anything above is broken.
+# Fail the image build early if Flox installed correctly.
 RUN flox --version
+
+# --- Configurable seed packages -------------------------------------------------
+# Packages baked into the Nix store at build time so they live in the seed
+# (/opt/nix-seed) and are therefore present in /nix even on a COLD cache volume.
+# Put common, heavy, slow-to-download things here (language runtimes, compilers,
+# toolchains) so cold builds don't re-download them.
+#
+# Pluggable: edit the SEED_PACKAGES default below -- a space-separated list of
+# Flox pkg-paths. The Buildkite UI image editor builds the Dockerfile as-is (no
+# --build-arg), so the default value is what's used. Examples:
+#     ARG SEED_PACKAGES="nodejs python3 go"
+#     ARG SEED_PACKAGES="nodejs@20 rustc cargo gcc"
+# Set to "" to bake nothing beyond Flox itself.
+#
+# Caveat: a baked package only yields a runtime cache hit when a project env
+# resolves to the SAME store path (same version, same catalog). Bake the
+# versions your projects actually use.
+ARG SEED_PACKAGES="hello jq"
+RUN set -eux; \
+    if [ -n "$SEED_PACKAGES" ]; then \
+        mkdir -p /opt/seed-env; \
+        cd /opt/seed-env; \
+        flox init; \
+        flox install $SEED_PACKAGES; \
+        flox list; \
+    fi
+
+# Make the store traversable/writable by whatever user the agent runs jobs as.
+# Buildkite forbids changing USER/UID/GID, so we cannot chown to a user we make.
+# Done after seeding packages so their store paths get the same permissions.
+RUN chmod -R a+rwX /nix
 
 # Stash the baked Nix store outside /nix so a /nix cache volume (empty on the
 # first build) can be seeded from it at runtime -- see .buildkite/lib/ensure-nix.sh.
