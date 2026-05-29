@@ -10,18 +10,31 @@ Two things make Flox slow in CI, and they need separate fixes:
 | Cost | Fix here |
 | --- | --- |
 | Installing Flox (binary + Nix) every build | **Bake Flox into a custom agent image** — `.buildkite/agent-image/Dockerfile`. Flox is simply present; zero per-build install. |
-| Populating the Nix store (downloading the env closure) | **Cache volume on `/nix`** — declared in `.buildkite/pipeline.yml`. First build is cold; later builds reuse a warm store. |
+| Populating the Nix store (downloading the env closure) | Warm-caching `/nix` across builds — **deliberately not enabled yet** (see *Caching `/nix`* below); it conflicts with baking Flox into the image and needs the seed pattern. |
 
-This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install) +
-`actions/cache` on `/nix` (warm store), done once at the image/queue level instead
-of per-workflow.
+This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install),
+done once at the image/queue level instead of per-workflow.
+
+### Caching `/nix` (why it's not a plain cache volume)
+
+Flox and its bundled Nix live entirely under `/nix/store` — `/usr/bin/flox` is just
+a symlink into `/nix`. A cache volume mounted at `/nix` is **empty on the first
+build**, so it *shadows* the `/nix` baked into the agent image, turning
+`/usr/bin/flox` into a dangling symlink → `flox: command not found`.
+
+So with Flox baked into the image you **cannot** also cache-mount `/nix` naively.
+To get warm cross-build caching you need the **seed pattern**: copy the baked store
+aside in the image (`RUN cp -a /nix /opt/nix-seed`), mount the cache volume at
+`/nix`, and in a pre-command hook seed the volume from `/opt/nix-seed` when it's
+empty. That's a follow-up; the current setup keeps Flox baked-in and skips the
+`/nix` volume so the basic path is correct first.
 
 ## Layout
 
 ```
 .buildkite/
   agent-image/Dockerfile   custom hosted-agent image with Flox preinstalled
-  pipeline.yml             real steps: validate + activate, with /nix cache volume
+  pipeline.yml             real steps: validate + activate (no /nix cache volume yet)
   upload.yml               the one-line pipeline-upload step for Buildkite settings
 .flox/                     a small Flox environment (jq + hello) to activate
 ```
@@ -93,10 +106,11 @@ Click **New Build** → Create Build on `main`, then check:
 
 ✅ That's the acceptance test: **`flox activate` works and a real package binary runs.**
 
-## Step 5 — Confirm the cache warms
+## Step 5 — (later) warm caching
 
-Run **New Build** again and compare the `time flox activate` output: build #2 should
-be faster than #1 because the `/nix` cache volume already holds the store closure.
+Cross-build `/nix` caching is intentionally not enabled yet — see *Caching `/nix`*
+above for why a plain cache volume breaks the baked-in Flox, and the seed pattern
+that does it correctly. Get Step 4 green first.
 
 ## Using Flox in real pipelines
 
@@ -111,6 +125,8 @@ steps:
 
 ## Caveats
 
+- A cache volume on `/nix` conflicts with baking Flox into the image — see
+  *Caching `/nix`* above. Use the seed pattern, not a plain volume.
 - Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching as an
   optimization, never a dependency. Cold builds still work (re-download).
 - One cache volume per step.

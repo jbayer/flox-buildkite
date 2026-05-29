@@ -3,15 +3,16 @@
 # Prereq: the queue uses the custom agent image from .buildkite/agent-image/,
 # so `flox` is already installed (no install step here).
 #
-# The cache volume below persists /nix across builds. The first build populates
-# the Nix store from the Flox Catalog (cold); subsequent builds reuse it and
-# `flox activate` is fast. Cache volumes are best-effort with ~14-day retention,
-# so the pipeline must still work cold -- it does, activation just re-downloads.
-cache:
-  name: "flox-nix-store"
-  size: "50g"
-  paths:
-    - "/nix"
+# NOTE on caching /nix:
+# Flox (and its bundled Nix) lives entirely under /nix/store -- /usr/bin/flox is
+# just a symlink into /nix. A naive cache volume mounted at /nix SHADOWS the /nix
+# baked into the agent image (the volume is empty on the first build), which turns
+# /usr/bin/flox into a dangling symlink -> "flox: command not found".
+#
+# So we do NOT cache-mount /nix here. Flox is baked into the image and always
+# present; `flox activate` downloads just this env's packages each build. Warm
+# cross-build caching needs the "seed" pattern (see README) and is deliberately
+# left out until the basic path is green.
 
 steps:
   - label: ":mag: validate agent + flox"
@@ -21,6 +22,7 @@ steps:
       id
       echo "NIX_REMOTE=$NIX_REMOTE"
       echo "--- flox is preinstalled in the agent image"
+      command -v flox
       flox --version
       echo "--- /nix is writable by the job user?"
       test -w /nix && echo "yes: /nix writable" || echo "NO: /nix not writable"
@@ -29,7 +31,5 @@ steps:
 
   - label: ":flox: activate environment"
     command: |
-      echo "--- first activation (cold unless /nix cache volume is warm)"
+      echo "--- activate the repo environment and run real package binaries"
       time flox activate -- bash -c 'hello && jq --version'
-      echo "--- second activation (store now warm in this job)"
-      time flox activate -- true
