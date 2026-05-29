@@ -6,10 +6,9 @@ minimal per-build install required.
 
 ## How the caching works (the mental model)
 
-With Flox and Nix, **everything lives in a single directory, `/nix/store`.**
-Flox itself, every language runtime, every package — all of it.
-(`/usr/bin/flox` is just a symlink into `/nix/store`.) So "make CI fast"
-reduces to one thing: **have as much of `/nix/store` already present as
+**Flox and every package it installs live under a single directory,
+`/nix/store`.** (`/usr/bin/flox` is itself just a symlink into it.) So making
+CI fast reduces to one thing: **have as much of `/nix/store` already present as
 possible when a build starts**, instead of downloading it mid-build.
 
 ```
