@@ -1,0 +1,35 @@
+# Buildkite pipeline for Flox on a SELF-HOSTED agent (reliably warm /nix).
+#
+# Unlike the hosted flow (.buildkite/pipeline.yml), there is no `cache:` block
+# and no seed: the self-hosted agent (see ../self-hosted/) keeps /nix on a Docker
+# named volume that persists across builds and `docker compose restart`. So /nix
+# is warm by construction after the first build populates it -- no locality
+# lottery, no best-effort caveat.
+#
+# This pipeline's job is to make that warmth *visible*. Run a build, then run a
+# second build: build #1 downloads jq+hello (you'll see flox realise them and a
+# multi-second `time`); build #2 prints no download output, an already-large
+# /nix at job start, and a sub-second activate. That delta is the proof.
+#
+# Wire it up: set the pipeline's Steps (Pipeline -> Settings -> Steps) to
+#   - command: buildkite-agent pipeline upload .buildkite/pipeline.self-hosted.yml
+# so the real steps below live in version control.
+
+steps:
+  - label: ":flox: activate (self-hosted, warm-check)"
+    agents: { queue: "flox-self-hosted" }
+    command: |
+      echo "--- /nix size at job START (warm => already large; cold #1 => just the baked store)"
+      du -sh /nix 2>/dev/null
+      echo "--- /nix/store path count at START (warm #2 already includes jq+hello)"
+      ls /nix/store | wc -l
+      echo "--- flox on PATH?"
+      command -v flox
+      echo "--- activate the repo env and run real package binaries (timed)"
+      echo "    cold #1: flox downloads jq+hello -> multi-second 'real'"
+      echo "    warm #2: no download output       -> sub-second 'real'"
+      time flox activate -- bash -c 'hello && jq --version'
+      echo "--- /nix size AFTER activate (grows once on #1, then holds across builds)"
+      du -sh /nix 2>/dev/null
+      echo "--- /nix/store path count AFTER"
+      ls /nix/store | wc -l
