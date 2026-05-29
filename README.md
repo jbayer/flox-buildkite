@@ -1,22 +1,21 @@
 # flox-buildkite
 
-Test repository for running [Flox](https://flox.dev) on [Buildkite](https://buildkite.com)
+How to run [Flox](https://flox.dev) on [Buildkite](https://buildkite.com)
 — both **hosted** and **self-hosted** agents — fast and reproducibly, with
 minimal per-build install required.
 
 ## How the caching works (the mental model)
 
-New to Flox/Nix? Here's the one idea everything below rests on: **everything Flox
-needs lives in a single directory, `/nix/store`.** Flox itself, every language
-runtime, every package — all of it. (`/usr/bin/flox` is just a symlink into
-`/nix/store`.) So "make CI fast" reduces to one thing: **have as much of
-`/nix/store` already present as possible when a build starts**, instead of
-downloading it mid-build.
+With Flox and Nix, **everything lives in a single directory, `/nix/store`.** 
+Flox itself, every language runtime, every package — all of it. 
+(`/usr/bin/flox` is just a symlink int o`/nix/store`.) So "make CI fast" 
+reduces to one thing: **have as much of `/nix/store` already present as 
+possible when a build starts**, instead of downloading it mid-build.
 
 ```
    flox activate ──▶ needs its packages present in /nix/store
                        ├─ already there?  →  instant       ✅
-                       └─ missing?        →  download it    ⏳  ← the cost we remove
+                       └─ missing?        →  download it    ⏳  ← the cost to minimize
 ```
 
 ### Hosted agents — two phases fill `/nix/store`
