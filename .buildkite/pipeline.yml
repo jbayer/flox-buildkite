@@ -13,7 +13,9 @@
 #     volume, so later builds activate without re-downloading them.
 cache:
   name: "flox-nix-store"
-  size: "20g"
+  # Size is a cap, not a reservation -- set it comfortably above your warm /nix
+  # size (seed + the full env closure) so a large env never hits the ceiling.
+  size: "50g"
   paths:
     - "/nix"
 

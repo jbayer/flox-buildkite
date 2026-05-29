@@ -33,9 +33,35 @@ The **seed pattern** resolves this:
    `/opt/nix-seed` into `/nix`, restoring a working Flox. On a warm volume it's a
    no-op.
 
-After the first build, the volume holds Flox **and** the env's packages (`jq`,
-`hello`) that `flox activate` pulled, so later builds skip both the seed copy and
-the package downloads.
+After a build, the volume holds Flox **and** the env's packages that
+`flox activate` pulled, so a *warm* later build skips both the seed copy and the
+package downloads.
+
+### Best-effort, not durable — read this before trusting the cache
+
+Buildkite hosted-agent cache volumes are **best-effort accelerators, not durable
+storage** ([docs](https://buildkite.com/docs/pipelines/hosted-agents/cache-volumes)).
+A job that exits `0` commits a new volume version ("last write" model), but the
+next build is **only re-attached to that volume on a best-effort basis depending
+on locality** — "back-to-back builds don't reliably reuse the same volume." So:
+
+- **Low-frequency pipelines see mostly cold mounts.** Each build tends to land on
+  a fresh instance without your committed copy → `Mounted cache on /nix (size 4.0K)`
+  → the seed runs. Hit rate rises with build frequency but is never guaranteed.
+- That's *why* the seed pattern exists: every cold mount **self-heals** instead of
+  failing. Warm hits are a bonus, not a contract.
+
+**Reading the log:**
+- `Mounted cache on /nix (size <large>)` + `--- /nix cache volume is warm … skipping
+  seed` → warm hit (fast).
+- `Mounted cache on /nix (size 4.0K)` + `+++ cold … seeding from /opt/nix-seed`
+  → cold mount; expect a seed copy + (for a large env) a closure download.
+
+**If you need *reliable* warmth** (not best-effort): bake the env into the agent
+image (rebuild on manifest change), or use **self-hosted** agents whose disk
+persists `/nix` naturally. On hosted agents the volume is the best available, and
+it's worth it only when the env closure is large enough that re-downloading it
+costs more than the ~seconds the seed adds.
 
 ## Layout
 
@@ -119,18 +145,20 @@ Click **New Build** → Create Build on `main`, then check:
 > ⚠️ The Dockerfile carries the `/opt/nix-seed` stash, so if you enabled caching
 > after a first attempt, **rebuild the `flox-agent` image** before this build.
 
-## Step 5 — Confirm the cache warms
+## Step 5 — Observe warm vs cold (don't expect every build to be warm)
 
-Run **New Build** again on `main` and compare the two builds:
+Run a few builds and watch the `Mounted cache on /nix (size …)` line and
+`ensure-nix.sh`'s warm/cold message:
 
-- Build #1 (cold): `ensure-nix.sh` prints `seeding from /opt/nix-seed`, and
-  `flox activate` downloads `jq`+`hello` into the volume.
-- Build #2 (warm): `ensure-nix.sh` prints `/nix cache volume is warm … skipping
-  seed`, and the `time flox activate` line is noticeably faster (no seed copy, no
-  package download).
+- **Warm hit:** `size <large>` + `… cache volume is warm … skipping seed`, and a
+  faster `time flox activate` (no seed, no closure download).
+- **Cold mount:** `size 4.0K` + `+++ cold … seeding from /opt/nix-seed`.
 
-Because cache volumes are best-effort with ~14-day retention, a cold build can
-recur (eviction); the seed step makes that self-healing rather than a failure.
+⚠️ On a low-frequency pipeline you'll see **mostly cold mounts** — this is the
+documented best-effort behavior, not a misconfiguration (see *Best-effort, not
+durable* above). Consecutive builds often land on different agent instances and
+so don't share the volume. Warm-hit rate climbs as the pipeline runs more often;
+the seed makes every cold mount self-healing meanwhile.
 
 ## Using Flox in real pipelines
 
