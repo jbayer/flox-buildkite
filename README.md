@@ -8,7 +8,7 @@ minimal per-build install required.
 
 With Flox and Nix, **everything lives in a single directory, `/nix/store`.** 
 Flox itself, every language runtime, every package — all of it. 
-(`/usr/bin/flox` is just a symlink int o`/nix/store`.) So "make CI fast" 
+(`/usr/bin/flox` is just a symlink into `/nix/store`.) So "make CI fast" 
 reduces to one thing: **have as much of `/nix/store` already present as 
 possible when a build starts**, instead of downloading it mid-build.
 
@@ -69,20 +69,19 @@ SELF-HOSTED AGENTS — you own the disk, so warmth is RELIABLE
 
 ## The approach
 
-Two things make Flox slow in CI, and they need separate fixes:
+The two hosted phases above map to specific files in this repo:
 
-| Cost | Fix here |
+| Phase | Where it lives |
 | --- | --- |
-| Installing Flox (binary + Nix) every build | **Bake Flox into a custom agent image** — `.buildkite/agent-image/Dockerfile`. Flox is simply present; zero per-build install. Common packages (language runtimes, compilers, toolchains) can also be installed into the store at image-build time via `SEED_PACKAGES`, so they're present on every build — see *Baking common packages* below. |
-| Populating the Nix store (downloading the env closure) | **Cache volume on `/nix` + the seed pattern** — `.buildkite/pipeline.yml` + `.buildkite/lib/ensure-nix.sh`. First build is cold; later builds reuse a warm store and activate without re-downloading. |
+| **1 · bake into the image** | `.buildkite/agent-image/Dockerfile` — installs Flox + `SEED_PACKAGES` into `/nix/store`, then stashes a copy at `/opt/nix-seed` (the seed pattern, below) |
+| **2 · cache volume on `/nix`** | `.buildkite/pipeline.yml` declares the volume; `.buildkite/lib/ensure-nix.sh` seeds it when cold |
 
 This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install) +
 `actions/cache` on `/nix` (warm store), done once at the image/queue level.
 
 ### Caching `/nix` (the seed pattern)
 
-Flox and its bundled Nix live entirely under `/nix/store` — `/usr/bin/flox` is just
-a symlink into `/nix`. So a cache volume mounted at `/nix` is a problem: it's
+Combining the two phases has a catch: a cache volume mounted at `/nix` is
 **empty on the first build**, which *shadows* the `/nix` baked into the agent
 image and turns `/usr/bin/flox` into a dangling symlink → `flox: command not found`.
 
