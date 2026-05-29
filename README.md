@@ -9,7 +9,7 @@ Two things make Flox slow in CI, and they need separate fixes:
 
 | Cost | Fix here |
 | --- | --- |
-| Installing Flox (binary + Nix) every build | **Bake Flox into a custom agent image** — `.buildkite/agent-image/Dockerfile`. Flox is simply present; zero per-build install. |
+| Installing Flox (binary + Nix) every build | **Bake Flox into a custom agent image** — `.buildkite/agent-image/Dockerfile`. Flox is simply present; zero per-build install. Common packages (language runtimes, compilers, toolchains) can also be installed into the store at image-build time via `SEED_PACKAGES`, so they're present on every build — see *Baking common packages* below. |
 | Populating the Nix store (downloading the env closure) | **Cache volume on `/nix` + the seed pattern** — `.buildkite/pipeline.yml` + `.buildkite/lib/ensure-nix.sh`. First build is cold; later builds reuse a warm store and activate without re-downloading. |
 
 This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install) +
