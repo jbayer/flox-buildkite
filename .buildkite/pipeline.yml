@@ -26,6 +26,8 @@ steps:
       echo "NIX_REMOTE=$NIX_REMOTE"
       echo "--- ensure /nix cache volume is usable (seed if cold)"
       bash .buildkite/lib/ensure-nix.sh
+      echo "--- /nix store size"
+      du -sh /nix 2>/dev/null
       echo "--- flox on PATH?"
       command -v flox
       echo "--- /nix writable?"
@@ -36,6 +38,10 @@ steps:
   - label: ":flox: activate environment"
     command: |
       bash .buildkite/lib/ensure-nix.sh
+      echo "--- /nix store size before activate"
+      du -sh /nix 2>/dev/null
       echo "--- activate the repo environment and run real package binaries"
       echo "    (cold build: downloads jq+hello into the volume; warm build: instant)"
       time flox activate -- bash -c 'hello && jq --version'
+      echo "--- /nix store size after activate (grows cold->warm as packages land)"
+      du -sh /nix 2>/dev/null
