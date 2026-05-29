@@ -6,10 +6,10 @@ minimal per-build install required.
 
 ## How the caching works (the mental model)
 
-With Flox and Nix, **everything lives in a single directory, `/nix/store`.** 
-Flox itself, every language runtime, every package — all of it. 
-(`/usr/bin/flox` is just a symlink into `/nix/store`.) So "make CI fast" 
-reduces to one thing: **have as much of `/nix/store` already present as 
+With Flox and Nix, **everything lives in a single directory, `/nix/store`.**
+Flox itself, every language runtime, every package — all of it.
+(`/usr/bin/flox` is just a symlink into `/nix/store`.) So "make CI fast"
+reduces to one thing: **have as much of `/nix/store` already present as
 possible when a build starts**, instead of downloading it mid-build.
 
 ```
@@ -76,25 +76,28 @@ The two hosted phases above map to specific files in this repo:
 | **1 · bake into the image** | `.buildkite/agent-image/Dockerfile` — installs Flox + `SEED_PACKAGES` into `/nix/store`, then stashes a copy at `/opt/nix-seed` (the seed pattern, below) |
 | **2 · cache volume on `/nix`** | `.buildkite/pipeline.yml` declares the volume; `.buildkite/lib/ensure-nix.sh` seeds it when cold |
 
-This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install) +
-`actions/cache` on `/nix` (warm store), done once at the image/queue level.
+This is the Buildkite equivalent of GitHub's `flox/install-flox-action`
+(install) + `actions/cache` on `/nix` (warm store), done once at the
+image/queue level.
 
 ### Caching `/nix` (the seed pattern)
 
 Combining the two phases has a catch: a cache volume mounted at `/nix` is
 **empty on the first build**, which *shadows* the `/nix` baked into the agent
-image and turns `/usr/bin/flox` into a dangling symlink → `flox: command not found`.
+image and turns `/usr/bin/flox` into a dangling symlink →
+`flox: command not found`.
 
 The **seed pattern** resolves this:
 
-1. **Image** (`agent-image/Dockerfile`): after installing Flox, stash a copy of the
-   baked store outside `/nix` — `RUN cp -al /nix /opt/nix-seed` (hardlinked, so it
-   costs ~no extra image space). `/opt` is not shadowed by the volume.
+1. **Image** (`agent-image/Dockerfile`): after installing Flox, stash a copy
+   of the baked store outside `/nix` — `RUN cp -al /nix /opt/nix-seed`
+   (hardlinked, so it costs ~no extra image space). `/opt` is not shadowed by
+   the volume.
 2. **Volume** (`pipeline.yml`): mount the cache volume at `/nix`.
 3. **Seed on cold** (`lib/ensure-nix.sh`, called at the top of each Flox step):
    if `/usr/bin/flox` isn't executable (dangling → cold volume), copy
-   `/opt/nix-seed` into `/nix`, restoring a working Flox. On a warm volume it's a
-   no-op.
+   `/opt/nix-seed` into `/nix`, restoring a working Flox. On a warm volume
+   it's a no-op.
 
 After a build, the volume holds Flox **and** the env's packages that
 `flox activate` pulled, so a *warm* later build skips both the seed copy and the
@@ -108,30 +111,32 @@ A job that exits `0` commits a new volume version ("last write" model), but the
 next build is **only re-attached to that volume on a best-effort basis depending
 on locality** — "back-to-back builds don't reliably reuse the same volume." So:
 
-- **Low-frequency pipelines see mostly cold mounts.** Each build tends to land on
-  a fresh instance without your committed copy → `Mounted cache on /nix (size 4.0K)`
-  → the seed runs. Hit rate rises with build frequency but is never guaranteed.
+- **Low-frequency pipelines see mostly cold mounts.** Each build tends to
+  land on a fresh instance without your committed copy
+  → `Mounted cache on /nix (size 4.0K)` → the seed runs. Hit rate rises with
+  build frequency but is never guaranteed.
 - That's *why* the seed pattern exists: every cold mount restores itself instead
   of failing. Warm hits are not guaranteed.
 
 **Reading the log:**
-- `Mounted cache on /nix (size <large>)` + `--- /nix cache volume is warm … skipping
-  seed` → warm hit (fast).
+- `Mounted cache on /nix (size <large>)` + `--- /nix cache volume is warm …
+  skipping seed` → warm hit (fast).
 - `Mounted cache on /nix (size 4.0K)` + `+++ cold … seeding from /opt/nix-seed`
   → cold mount; expect a seed copy + (for a large env) a closure download.
 
 **If you need *reliable* warmth** (not best-effort): bake the env into the agent
 image (rebuild on manifest change), or use **self-hosted** agents whose disk
-persists `/nix` naturally. On hosted agents the volume is the best available, and
-it's worth it only when the env closure is large enough that re-downloading it
-costs more than the ~seconds the seed adds.
+persists `/nix` naturally. On hosted agents the volume is the best available,
+and it's worth it only when the env closure is large enough that re-downloading
+it costs more than the ~seconds the seed adds.
 
 ### Baking common packages into the seed (`SEED_PACKAGES`)
 
 The cache volume is best-effort, so cold mounts happen. To make even cold builds
 fast for the heavy, common dependencies (language runtimes, compilers,
-toolchains), **bake them into the image** — they then live in `/opt/nix-seed` and
-land in `/nix` on every cold seed, so `flox activate` finds them already present.
+toolchains), **bake them into the image** — they then live in `/opt/nix-seed`
+and land in `/nix` on every cold seed, so `flox activate` finds them already
+present.
 
 Edit the `SEED_PACKAGES` arg in `agent-image/Dockerfile` (space-separated Flox
 pkg-paths) and rebuild the image:
@@ -175,9 +180,9 @@ user. Because Buildkite chooses the job's user and forbids changing
 `USER`/`UID`/`GID` in the Dockerfile, the image makes `/nix` writable
 (`chmod -R a+rwX /nix`) instead of chowning it to a user we create.
 
-This was verified locally as a non-root user with `NIX_REMOTE=auto`: `flox activate`
-works and the `hello` package binary runs. The on-Buildkite confirmation is
-the runbook below.
+This was verified locally as a non-root user with `NIX_REMOTE=auto`:
+`flox activate` works and the `hello` package binary runs. The on-Buildkite
+confirmation is the runbook below.
 
 ---
 
@@ -195,13 +200,14 @@ hosted** → Linux → pick the architecture.
 1. Global nav → **Agents** → select your cluster.
 2. **Agent Images** tab → **New Image**.
 3. **Name:** `flox-agent`.
-4. **Dockerfile field:** the `FROM` line is **pre-filled by Buildkite and cannot
-   be edited** (it pins `buildkite/hosted-agent-base` for the queue's arch). Paste
-   `.buildkite/agent-image/Dockerfile` **minus its `FROM` line**. No arch edits
-   needed — the Flox install auto-detects `x86_64` vs `aarch64` via `uname -m`.
+4. **Dockerfile field:** the `FROM` line is **pre-filled by Buildkite and
+   cannot be edited** (it pins `buildkite/hosted-agent-base` for the queue's
+   arch). Paste `.buildkite/agent-image/Dockerfile` **minus its `FROM` line**.
+   No arch edits needed — the Flox install auto-detects `x86_64` vs `aarch64`
+   via `uname -m`.
    - To bake common packages (language runtimes, etc.) into the store, edit the
-     `SEED_PACKAGES` arg before creating the image — see *Baking common packages*
-     above.
+     `SEED_PACKAGES` arg before creating the image — see *Baking common
+     packages* above.
 5. **Create Agent Image.** Buildkite builds it; the final `RUN flox --version`
    means a successful build already proves the install works.
 
@@ -217,8 +223,9 @@ hosted** → Linux → pick the architecture.
 2. **Repository:** `https://github.com/jbayer/flox-buildkite` (authorize GitHub
    access if prompted — the repo is private).
 3. **Cluster/Queue:** select the cluster and queue from Step 2.
-4. **Steps:** use the upload step from `.buildkite/upload.yml` (Buildkite's default
-   is already equivalent). This uploads the real steps from `.buildkite/pipeline.yml`.
+4. **Steps:** use the upload step from `.buildkite/upload.yml` (Buildkite's
+   default is already equivalent). This uploads the real steps from
+   `.buildkite/pipeline.yml`.
 5. Create Pipeline.
 
 ## Step 4 — Run the first build (the acceptance test)
@@ -235,7 +242,8 @@ Click **New Build** → Create Build on `main`, then check:
   - `Hello, world!` (GNU `hello`, the sentinel, ran)
   - exit **0**
 
-✅ That's the acceptance test: **`flox activate` works and a real package binary runs.**
+✅ That's the acceptance test: **`flox activate` works and a real package
+binary runs.**
 
 The step runs `flox activate -- hello`. `hello` is the **smoke-test sentinel**
 pinned in `.flox/env/manifest.toml` — the single source of truth for what the
@@ -276,18 +284,19 @@ steps:
 
 # Self-hosted agents (a reliably warm `/nix`)
 
-Everything above is for Buildkite *hosted* agents, where the `/nix` cache volume
-is best-effort. If you run **self-hosted** agents you control the disk, so `/nix`
-can persist **reliably**, without depending on locality. The `self-hosted/` directory runs
-one as a local Docker container so you can see it end to end.
+Everything above is for Buildkite *hosted* agents, where the `/nix` cache
+volume is best-effort. If you run **self-hosted** agents you control the disk,
+so `/nix` can persist **reliably**, without depending on locality. The
+`self-hosted/` directory runs one as a local Docker container so you can see it
+end to end.
 
-How it stays warm: the agent runs as a long-lived container with a Docker **named
-volume** mounted at `/nix`. On first `up`, Docker copies the image's baked `/nix`
-(Flox + `SEED_PACKAGES`) into the empty volume, so Flox works immediately — and
-the volume persists across builds *and* `docker compose restart`. The same
-`.buildkite/pipeline.yml` runs unchanged; its `cache:` block is a hosted-agent
-directive that self-hosted agents simply ignore, and `ensure-nix.sh` becomes a
-no-op because the volume is already warm.
+How it stays warm: the agent runs as a long-lived container with a Docker
+**named volume** mounted at `/nix`. On first `up`, Docker copies the image's
+baked `/nix` (Flox + `SEED_PACKAGES`) into the empty volume, so Flox works
+immediately — and the volume persists across builds *and*
+`docker compose restart`. The same `.buildkite/pipeline.yml` runs unchanged;
+its `cache:` block is a hosted-agent directive that self-hosted agents simply
+ignore, and `ensure-nix.sh` becomes a no-op because the volume is already warm.
 
 ## Run it locally
 
@@ -297,8 +306,8 @@ cp .env.example .env          # then paste your token (Agents -> cluster -> Agen
 docker compose up --build     # builds the agent image and connects it to Buildkite
 ```
 
-The agent registers under the queue tag `flox-self-hosted`. Point a pipeline step
-at it:
+The agent registers under the queue tag `flox-self-hosted`. Point a pipeline
+step at it:
 
 ```yaml
 steps:
@@ -308,8 +317,8 @@ steps:
 ```
 
 Trigger a build, then trigger a **second** one: the first populates `/nix`, and
-every build after — including after `docker compose restart` — finds it already
-warm (instant activate, no download). Confirm persistence directly:
+every build after — including after `docker compose restart` — finds it
+already warm (instant activate, no download). Confirm persistence directly:
 
 ```bash
 docker volume inspect flox-buildkite-self-hosted_nix-store
@@ -318,7 +327,8 @@ docker compose exec agent du -sh /nix
 
 ## When to prefer self-hosted vs hosted
 
-- **Hosted + cache volume + seed:** zero infra to run; warm cache is best-effort.
+- **Hosted + cache volume + seed:** zero infra to run; warm cache is
+  best-effort.
 - **Self-hosted + persistent `/nix`:** you run the agent, but the warm cache is
   reliable and there's no per-build seed copy. Best when a large closure makes
   consistent warmth worth operating an agent.
@@ -327,9 +337,9 @@ docker compose exec agent du -sh /nix
 
 - A cache volume on `/nix` conflicts with baking Flox into the image — see
   *Caching `/nix`* above. Use the seed pattern, not a plain volume.
-- Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching as an
-  optimization, never a dependency. Cold builds still work (re-download).
+- Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching
+  as an optimization, never a dependency. Cold builds still work (re-download).
 - One cache volume per step.
 - Pin `FLOX_VERSION` in the Dockerfile for reproducible agent images.
-- If the validate step prints `NO: /nix not writable`, that's the one thing to tune
-  in the Dockerfile for your queue's job user.
+- If the validate step prints `NO: /nix not writable`, that's the one thing to
+  tune in the Dockerfile for your queue's job user.
