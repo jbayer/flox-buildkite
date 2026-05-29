@@ -55,3 +55,9 @@ RUN chmod -R a+rwX /nix
 
 # Fail the image build early if anything above is broken.
 RUN flox --version
+
+# Stash the baked Nix store outside /nix so a /nix cache volume (empty on the
+# first build) can be seeded from it at runtime -- see .buildkite/lib/ensure-nix.sh.
+# Hardlink the copy (-l) so it costs ~no extra image space; fall back to a real
+# copy if hardlinks aren't possible. /opt is not shadowed by the /nix volume.
+RUN cp -al /nix /opt/nix-seed || cp -a /nix /opt/nix-seed

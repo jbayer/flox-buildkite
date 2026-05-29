@@ -1,18 +1,21 @@
-# Buildkite pipeline for Flox on hosted agents.
+# Buildkite pipeline for Flox on hosted agents, with a warm /nix cache.
 #
 # Prereq: the queue uses the custom agent image from .buildkite/agent-image/,
-# so `flox` is already installed (no install step here).
+# which (a) has Flox preinstalled and (b) stashes the baked Nix store at
+# /opt/nix-seed so the cache volume can be seeded when cold.
 #
-# NOTE on caching /nix:
-# Flox (and its bundled Nix) lives entirely under /nix/store -- /usr/bin/flox is
-# just a symlink into /nix. A naive cache volume mounted at /nix SHADOWS the /nix
-# baked into the agent image (the volume is empty on the first build), which turns
-# /usr/bin/flox into a dangling symlink -> "flox: command not found".
-#
-# So we do NOT cache-mount /nix here. Flox is baked into the image and always
-# present; `flox activate` downloads just this env's packages each build. Warm
-# cross-build caching needs the "seed" pattern (see README) and is deliberately
-# left out until the basic path is green.
+# Caching model (see README "Caching /nix" for the full explanation):
+#   - The cache volume below persists /nix across builds.
+#   - Flox lives under /nix/store, so an empty volume would shadow the baked-in
+#     Flox. `.buildkite/lib/ensure-nix.sh` seeds the volume from /opt/nix-seed
+#     when it is cold, restoring a usable Flox; on a warm volume it is a no-op.
+#   - Env packages that `flox activate` pulls (jq, hello) then persist in the
+#     volume, so later builds activate without re-downloading them.
+cache:
+  name: "flox-nix-store"
+  size: "20g"
+  paths:
+    - "/nix"
 
 steps:
   - label: ":mag: validate agent + flox"
@@ -21,15 +24,18 @@ steps:
       whoami
       id
       echo "NIX_REMOTE=$NIX_REMOTE"
-      echo "--- flox is preinstalled in the agent image"
+      echo "--- ensure /nix cache volume is usable (seed if cold)"
+      bash .buildkite/lib/ensure-nix.sh
+      echo "--- flox on PATH?"
       command -v flox
-      flox --version
-      echo "--- /nix is writable by the job user?"
+      echo "--- /nix writable?"
       test -w /nix && echo "yes: /nix writable" || echo "NO: /nix not writable"
 
   - wait
 
   - label: ":flox: activate environment"
     command: |
+      bash .buildkite/lib/ensure-nix.sh
       echo "--- activate the repo environment and run real package binaries"
+      echo "    (cold build: downloads jq+hello into the volume; warm build: instant)"
       time flox activate -- bash -c 'hello && jq --version'

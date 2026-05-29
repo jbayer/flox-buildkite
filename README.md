@@ -10,31 +10,40 @@ Two things make Flox slow in CI, and they need separate fixes:
 | Cost | Fix here |
 | --- | --- |
 | Installing Flox (binary + Nix) every build | **Bake Flox into a custom agent image** — `.buildkite/agent-image/Dockerfile`. Flox is simply present; zero per-build install. |
-| Populating the Nix store (downloading the env closure) | Warm-caching `/nix` across builds — **deliberately not enabled yet** (see *Caching `/nix`* below); it conflicts with baking Flox into the image and needs the seed pattern. |
+| Populating the Nix store (downloading the env closure) | **Cache volume on `/nix` + the seed pattern** — `.buildkite/pipeline.yml` + `.buildkite/lib/ensure-nix.sh`. First build is cold; later builds reuse a warm store and activate without re-downloading. |
 
-This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install),
-done once at the image/queue level instead of per-workflow.
+This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install) +
+`actions/cache` on `/nix` (warm store), done once at the image/queue level.
 
-### Caching `/nix` (why it's not a plain cache volume)
+### Caching `/nix` (the seed pattern)
 
 Flox and its bundled Nix live entirely under `/nix/store` — `/usr/bin/flox` is just
-a symlink into `/nix`. A cache volume mounted at `/nix` is **empty on the first
-build**, so it *shadows* the `/nix` baked into the agent image, turning
-`/usr/bin/flox` into a dangling symlink → `flox: command not found`.
+a symlink into `/nix`. So a cache volume mounted at `/nix` is a problem: it's
+**empty on the first build**, which *shadows* the `/nix` baked into the agent
+image and turns `/usr/bin/flox` into a dangling symlink → `flox: command not found`.
 
-So with Flox baked into the image you **cannot** also cache-mount `/nix` naively.
-To get warm cross-build caching you need the **seed pattern**: copy the baked store
-aside in the image (`RUN cp -a /nix /opt/nix-seed`), mount the cache volume at
-`/nix`, and in a pre-command hook seed the volume from `/opt/nix-seed` when it's
-empty. That's a follow-up; the current setup keeps Flox baked-in and skips the
-`/nix` volume so the basic path is correct first.
+The **seed pattern** resolves this:
+
+1. **Image** (`agent-image/Dockerfile`): after installing Flox, stash a copy of the
+   baked store outside `/nix` — `RUN cp -al /nix /opt/nix-seed` (hardlinked, so it
+   costs ~no extra image space). `/opt` is not shadowed by the volume.
+2. **Volume** (`pipeline.yml`): mount the cache volume at `/nix`.
+3. **Seed on cold** (`lib/ensure-nix.sh`, called at the top of each Flox step):
+   if `/usr/bin/flox` isn't executable (dangling → cold volume), copy
+   `/opt/nix-seed` into `/nix`, restoring a working Flox. On a warm volume it's a
+   no-op.
+
+After the first build, the volume holds Flox **and** the env's packages (`jq`,
+`hello`) that `flox activate` pulled, so later builds skip both the seed copy and
+the package downloads.
 
 ## Layout
 
 ```
 .buildkite/
-  agent-image/Dockerfile   custom hosted-agent image with Flox preinstalled
-  pipeline.yml             real steps: validate + activate (no /nix cache volume yet)
+  agent-image/Dockerfile   custom hosted-agent image: Flox preinstalled + /opt/nix-seed
+  pipeline.yml             real steps: validate + activate, with the /nix cache volume
+  lib/ensure-nix.sh        seeds the /nix cache volume from /opt/nix-seed when cold
   upload.yml               the one-line pipeline-upload step for Buildkite settings
 .flox/                     a small Flox environment (jq + hello) to activate
 ```
@@ -95,9 +104,10 @@ hosted** → Linux → pick the architecture.
 Click **New Build** → Create Build on `main`, then check:
 
 - **`:mag: validate agent + flox`** step →
-  - `whoami` / `id` (the real job user — the one open question)
+  - `whoami` / `id` → runs as **root** on hosted agents
   - `NIX_REMOTE=auto`
-  - `flox --version` → `1.12.1`
+  - `ensure-nix.sh` → `seeding from /opt/nix-seed` on the first build
+  - `command -v flox` → `/usr/bin/flox`
   - `yes: /nix writable`
 - **`:flox: activate environment`** step →
   - `Hello, world!` (GNU `hello` ran)
@@ -106,11 +116,21 @@ Click **New Build** → Create Build on `main`, then check:
 
 ✅ That's the acceptance test: **`flox activate` works and a real package binary runs.**
 
-## Step 5 — (later) warm caching
+> ⚠️ The Dockerfile carries the `/opt/nix-seed` stash, so if you enabled caching
+> after a first attempt, **rebuild the `flox-agent` image** before this build.
 
-Cross-build `/nix` caching is intentionally not enabled yet — see *Caching `/nix`*
-above for why a plain cache volume breaks the baked-in Flox, and the seed pattern
-that does it correctly. Get Step 4 green first.
+## Step 5 — Confirm the cache warms
+
+Run **New Build** again on `main` and compare the two builds:
+
+- Build #1 (cold): `ensure-nix.sh` prints `seeding from /opt/nix-seed`, and
+  `flox activate` downloads `jq`+`hello` into the volume.
+- Build #2 (warm): `ensure-nix.sh` prints `/nix cache volume is warm … skipping
+  seed`, and the `time flox activate` line is noticeably faster (no seed copy, no
+  package download).
+
+Because cache volumes are best-effort with ~14-day retention, a cold build can
+recur (eviction); the seed step makes that self-healing rather than a failure.
 
 ## Using Flox in real pipelines
 
