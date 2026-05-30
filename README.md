@@ -315,9 +315,14 @@ up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
 built-in `macos-medium` queue. Two constraints drive the approach:
 
 - **No custom agent images.** Unlike Linux, you can't bake Flox into the base
-  image, so Flox is installed **per build** from its macOS `.pkg`. That install
-  is the unavoidable cost here — the Linux Phase 1 (bake into the image) doesn't
-  exist on macOS.
+  image, so Flox is installed from its macOS `.pkg`. That `installer -pkg` is the
+  big per-build cost (~40s — it creates the `/nix` APFS volume, extracts the Nix
+  store, and sets up the daemon + `nixbld` users). `macos-install-flox.sh` adds a
+  **warm-agent fast path**: if flox and a live nix-daemon socket are already
+  present (the agent reused its VM), it **skips the reinstall** entirely;
+  otherwise it does the full cold install. A `COLD` log on every build means the
+  agent's `/nix` is ephemeral, so the install can't be skipped — in that case the
+  S3 cache (below) still warms the *closure*, but the install itself is the floor.
 - **`/nix` is a system APFS volume with a daemon.** macOS Nix is multi-user
   only, so you can't bind-mount a cache volume over `/nix` as on Linux. Warmth,
   when you need it, comes from a Nix **binary cache / substituter**, not from

@@ -15,34 +15,50 @@ set -euo pipefail
 PKG="/tmp/flox-cache/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
 URL="https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
 
-echo "--- the .pkg install needs root -- check passwordless sudo first"
-if ! sudo -n true 2>/dev/null; then
-  echo "NO passwordless sudo on this queue. The Flox .pkg cannot create the"
-  echo "/nix APFS volume + nix-daemon without it. See README (macOS section)."
-  exit 1
-fi
-
-if [ -f "$PKG" ]; then
-  echo "--- reuse cached .pkg ($PKG)"
-else
-  echo "--- download Flox ${FLOX_VERSION} .pkg (cold; cached for next build)"
-  mkdir -p "$(dirname "$PKG")"
-  curl -fsSL -o "$PKG" "$URL"
-fi
-
-echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root)"
-sudo installer -pkg "$PKG" -target /
-
-echo "--- put flox on PATH"
-# The .pkg installs the flox binary under /usr/local/bin. flox is self-contained:
-# it does not need a sourced Nix daemon profile (verified on macos-medium).
+# The .pkg installs flox under /usr/local/bin; put it on PATH up front so the
+# warm-agent check below can see an already-installed flox.
 export PATH="/usr/local/bin:$PATH"
-if ! command -v flox >/dev/null 2>&1; then
-  echo "flox not on PATH after install; looked in /usr/local/bin:"
-  ls -l /usr/local/bin/flox 2>/dev/null || echo "  (no /usr/local/bin/flox)"
-  exit 1
+
+# WARM-AGENT FAST PATH: the ~40s cost here is entirely `installer -pkg` (it
+# creates the /nix APFS volume, extracts the Nix store, and sets up the daemon +
+# nixbld users). If this agent reuses its VM across builds, all of that already
+# exists -- so skip the reinstall when flox is present AND the nix-daemon socket
+# is live. Falls through to a full install if anything is missing (cold VM), so
+# it's always safe. (Whether this ever triggers tells us if the macOS agent's
+# /nix persists -- a COLD log every build means it's ephemeral.)
+DAEMON_SOCK="/nix/var/nix/daemon-socket/socket"
+if command -v flox >/dev/null 2>&1 && [ -S "$DAEMON_SOCK" ]; then
+  echo "--- WARM agent: flox + nix-daemon already present; skipping the ~40s .pkg install"
+  flox --version
+else
+  echo "--- COLD agent: installing Flox from the .pkg"
+  echo "--- the .pkg install needs root -- check passwordless sudo first"
+  if ! sudo -n true 2>/dev/null; then
+    echo "NO passwordless sudo on this queue. The Flox .pkg cannot create the"
+    echo "/nix APFS volume + nix-daemon without it. See README (macOS section)."
+    exit 1
+  fi
+
+  if [ -f "$PKG" ]; then
+    echo "--- reuse cached .pkg ($PKG)"
+  else
+    echo "--- download Flox ${FLOX_VERSION} .pkg (cold; cached for next build)"
+    mkdir -p "$(dirname "$PKG")"
+    curl -fsSL -o "$PKG" "$URL"
+  fi
+
+  echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root) [timed]"
+  time sudo installer -pkg "$PKG" -target /
+
+  # flox is self-contained: it does not need a sourced Nix daemon profile.
+  export PATH="/usr/local/bin:$PATH"
+  if ! command -v flox >/dev/null 2>&1; then
+    echo "flox not on PATH after install; looked in /usr/local/bin:"
+    ls -l /usr/local/bin/flox 2>/dev/null || echo "  (no /usr/local/bin/flox)"
+    exit 1
+  fi
+  flox --version
 fi
-flox --version
 
 # --- S3 binary cache (optional; layer-2 read + write-back) ----------------------
 # macOS is multi-user Nix, so reads go through the root daemon -- see
