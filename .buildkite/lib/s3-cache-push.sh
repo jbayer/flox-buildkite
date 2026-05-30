@@ -26,7 +26,12 @@
 # file, uses it, and deletes it on exit; it is never echoed.
 set -euo pipefail
 
-: "${S3_CACHE_BUCKET:?set S3_CACHE_BUCKET}"
+# Graceful opt-out: empty/unset S3_CACHE_BUCKET means "no S3 cache" -- skip the
+# write-back so the standard pipeline still works without one.
+if [ -z "${S3_CACHE_BUCKET:-}" ]; then
+  echo "--- S3 cache not configured (S3_CACHE_BUCKET empty); skipping write-back"
+  exit 0
+fi
 : "${S3_CACHE_ENDPOINT:?set S3_CACHE_ENDPOINT (full S3 endpoint URL)}"
 : "${AWS_ACCESS_KEY_ID:?set AWS_ACCESS_KEY_ID (S3 access key id)}"
 : "${AWS_SECRET_ACCESS_KEY:?set AWS_SECRET_ACCESS_KEY (S3 secret access key)}"

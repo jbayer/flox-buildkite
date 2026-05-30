@@ -17,7 +17,11 @@
 # Reads of a PRIVATE bucket also need AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
 set -euo pipefail
 
-: "${S3_CACHE_BUCKET:?set S3_CACHE_BUCKET}"
+# Graceful opt-out: empty/unset S3_CACHE_BUCKET means "no S3 cache" -- skip.
+if [ -z "${S3_CACHE_BUCKET:-}" ]; then
+  echo "--- S3 cache not configured (S3_CACHE_BUCKET empty); skipping read-proof"
+  exit 0
+fi
 : "${S3_CACHE_ENDPOINT:?set S3_CACHE_ENDPOINT (full S3 endpoint URL)}"
 
 # aws-sdk otherwise probes the (absent) instance-metadata endpoint and stalls.

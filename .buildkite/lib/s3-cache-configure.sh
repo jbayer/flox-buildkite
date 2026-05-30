@@ -29,7 +29,13 @@
 # bucket public-read and point at an https:// URL instead -- see README.)
 set -euo pipefail
 
-: "${S3_CACHE_BUCKET:?set S3_CACHE_BUCKET}"
+# Graceful opt-out: an empty/unset S3_CACHE_BUCKET means "no S3 cache" -- skip
+# cleanly so the standard pipeline still works without one. A bucket set WITH a
+# missing endpoint/key is a misconfiguration and still fails loudly below.
+if [ -z "${S3_CACHE_BUCKET:-}" ]; then
+  echo "--- S3 cache not configured (S3_CACHE_BUCKET empty); skipping substituter setup"
+  exit 0
+fi
 : "${S3_CACHE_ENDPOINT:?set S3_CACHE_ENDPOINT (full S3 endpoint URL)}"
 : "${S3_CACHE_PUBLIC_KEY:?set S3_CACHE_PUBLIC_KEY}"
 

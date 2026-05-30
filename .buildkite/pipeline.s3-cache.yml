@@ -52,13 +52,7 @@ steps:
       bash .buildkite/lib/ensure-nix.sh
 
       echo "--- load S3 cache secrets into the environment"
-      export AWS_ACCESS_KEY_ID="$(buildkite-agent secret get S3_CACHE_ACCESS_KEY_ID)"
-      export AWS_SECRET_ACCESS_KEY="$(buildkite-agent secret get S3_CACHE_SECRET_ACCESS_KEY)"
-      export S3_CACHE_SIGNING_KEY="$(buildkite-agent secret get S3_CACHE_SIGNING_KEY)"
-      # Register the signing key with the log redactor. Escape as $$ so Buildkite
-      # does NOT interpolate it at pipeline-upload time (it would blank it out);
-      # the runtime shell then sees the real $S3_CACHE_SIGNING_KEY value.
-      buildkite-agent redactor add <<<"$$S3_CACHE_SIGNING_KEY" || true
+      source .buildkite/lib/s3-cache-load-secrets.sh
 
       echo "--- READ path: point Flox/Nix at the S3 cache substituter"
       bash .buildkite/lib/s3-cache-configure.sh
