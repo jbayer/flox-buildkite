@@ -53,9 +53,7 @@ steps:
       if [ ! -f "$PKG" ]; then
         echo "--- download Flox ${FLOX_VERSION} .pkg (cold; cached for next build)"
         mkdir -p "$(dirname "$PKG")"
-        curl -fsSL \
-          "https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg" \
-          -o "$PKG"
+        curl -fsSL -o "$PKG" "https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
       else
         echo "--- reuse cached .pkg ($PKG)"
       fi
