@@ -4,13 +4,19 @@
 # which (a) has Flox preinstalled and (b) stashes the baked Nix store at
 # /opt/nix-seed so the cache volume can be seeded when cold.
 #
-# Caching model (see README "Caching /nix" for the full explanation):
-#   - The cache volume below persists /nix across builds.
-#   - Flox lives under /nix/store, so an empty volume would shadow the baked-in
-#     Flox. `.buildkite/lib/ensure-nix.sh` seeds the volume from /opt/nix-seed
-#     when it is cold, restoring a usable Flox; on a warm volume it is a no-op.
-#   - Env packages that `flox activate` pulls then persist in the volume, so
-#     later builds activate without re-downloading them.
+# Caching model (see README for the full explanation). A missing /nix path is
+# resolved in fallback order:
+#   1. /nix cache volume below -- persists /nix across builds, but BEST-EFFORT
+#      (often cold / not re-attached). Flox lives under /nix/store, so an empty
+#      volume would shadow the baked-in Flox; `.buildkite/lib/ensure-nix.sh`
+#      seeds it from /opt/nix-seed when cold (no-op when warm).
+#   2. S3 binary cache -- the DURABLE layer (configured below). When the volume
+#      is cold, `flox activate` substitutes the env closure from your S3 cache
+#      (near the agents) instead of going upstream. Each build also writes its
+#      closure back, so the next cold build finds it warm there.
+#   3. Flox / upstream binary cache (cache.flox.dev, cache.nixos.org) -- the
+#      final fallback when a path is in neither the volume nor the S3 cache.
+# The S3 cache is OPTIONAL: clear S3_CACHE_BUCKET to run on just the volume.
 cache:
   name: "flox-nix-store"
   # Size is a cap, not a reservation -- set it comfortably above your warm /nix
@@ -18,6 +24,16 @@ cache:
   size: "50g"
   paths:
     - "/nix"
+
+# Non-secret S3 binary-cache config (any S3-compatible store; this example was
+# tested on CloudFlare R2). Swap for your own, or clear S3_CACHE_BUCKET to
+# disable. The matching secrets (S3_CACHE_ACCESS_KEY_ID / _SECRET_ACCESS_KEY /
+# S3_CACHE_SIGNING_KEY) are cluster secrets -- see .buildkite/pipeline.s3-cache.yml.
+env:
+  S3_CACHE_BUCKET: "flox-binary-cache"
+  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  S3_CACHE_REGION: "auto"
+  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
 
 steps:
   - label: ":mag: validate agent + flox"
@@ -39,12 +55,25 @@ steps:
 
   - label: ":flox: activate environment"
     command: |
+      set -euo pipefail
       bash .buildkite/lib/ensure-nix.sh
+
+      # Layer 2 (read): load cache secrets and point Flox/Nix at the S3 cache, so
+      # a cold activate substitutes the closure from there before going upstream.
+      # `source` so the exported creds persist into `flox activate` and the push.
+      # No-ops cleanly when S3_CACHE_BUCKET is empty (volume-only mode).
+      source .buildkite/lib/s3-cache-load-secrets.sh
+      bash .buildkite/lib/s3-cache-configure.sh
+
       echo "--- /nix store size before activate"
       du -sh /nix 2>/dev/null
       echo "--- activate the repo environment and run the sentinel package binary"
-      echo "    (cold build: downloads the env closure into the volume; warm build: instant)"
+      echo "    (cold: substitutes from the S3 cache, then upstream; warm: instant)"
       echo "    'hello' is the smoke-test sentinel pinned in .flox/env/manifest.toml"
       time flox activate -- hello
       echo "--- /nix store size after activate (grows cold->warm as packages land)"
       du -sh /nix 2>/dev/null
+
+      # Layer 2 (write): push this build's env closure back to the S3 cache so the
+      # next cold build can substitute it. No-op when the cache is disabled.
+      bash .buildkite/lib/s3-cache-push.sh

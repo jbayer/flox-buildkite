@@ -17,32 +17,40 @@ possible when a build starts**, instead of downloading it mid-build.
                        └─ missing?        →  download it    ⏳  ← the cost to minimize
 ```
 
-### Hosted agents — two phases fill `/nix/store`
+### Hosted agents — layers fill `/nix/store`, with a clear fallback order
 
-You don't own the machine, so you stack two independent caching layers:
+You don't own the machine, so you stack independent caching layers. When a
+build needs a `/nix` path, it's resolved in this order — each layer caught
+before the slower one below it:
 
 ```
-HOSTED AGENTS — two phases keep /nix/store full before a build runs
+HOSTED AGENTS — where a needed /nix path comes from, in fallback order
 ────────────────────────────────────────────────────────────────────
 
-PHASE 1 · bake into the CI base image                      [ RELIABLE ]
+PHASE 1 · baked into the CI base image                     [ RELIABLE ]
    │  The custom agent image installs Flox + commonly used runtime
    │  packages into /nix/store at image-build time.
    └▶ present on EVERY build, guaranteed, zero per-build install.
 
-                              +
+   then, for anything not already in /nix:
 
-PHASE 2 · Buildkite cache volume on /nix                [ BEST-EFFORT ]
-   │  A volume persists whatever a build pulled into /nix/store, so
-   │  later builds reuse it instead of re-downloading.
-   └▶ re-attach depends on locality, so reuse is not guaranteed.
-
-                              ↓
-   anything still missing is downloaded cold (slower, but always works)
+  1. /nix cache volume            present?  →  use it        [ BEST-EFFORT ]
+        persists what past builds pulled, BUT re-attach depends on
+        locality — often cold / not re-attached.
+              │ cold / not attached?  the first place to check next ↓
+  2. S3 binary cache (your bucket)  hit?    →  pull (near, signed)  [ DURABLE ]
+        lives close to the agents (iad / us-east-1); each build also
+        writes its closure back, so the next cold build finds it warm.
+              │ miss?  flows up to ↓
+  3. Flox / upstream binary cache   hit?    →  pull        [ ALWAYS WORKS ]
+        cache.flox.dev, cache.nixos.org — the furthest, slowest hop.
 ```
 
-Phase 1 is always present. Phase 2 only helps when a build happens to land back
-on the same volume.
+Phase 1 is always present. The volume only helps when a build lands back on the
+same one — so **when it's cold, the S3 cache is the next stop**, and only a miss
+*there* flows up to the upstream Flox/Nix binary cache. The standard
+`pipeline.yml` wires in layers 2–3 (see *Durable cache* below); the S3 cache is
+optional — clear `S3_CACHE_BUCKET` to run on just the volume.
 
 ### Self-hosted agents — you control the storage
 
@@ -532,12 +540,13 @@ docker compose exec agent du -sh /nix
 ```
 .buildkite/
   agent-image/Dockerfile          hosted Linux agent image: Flox + SEED_PACKAGES + /opt/nix-seed
-  pipeline.yml                    hosted Linux steps: validate + activate, with the /nix cache volume
+  pipeline.yml                    hosted Linux steps: validate + activate, with the /nix volume + S3 cache (layers 1-3)
   pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check)
   pipeline.macos.yml              steps for a macOS hosted queue (per-build .pkg install)
   pipeline.region-discovery.yml   informational: print a hosted Linux agent's egress IP + region
   pipeline.s3-cache.yml           S3 binary-cache round-trip: configure read + activate + push back + read-proof
   lib/ensure-nix.sh               seeds the /nix cache volume from /opt/nix-seed when cold
+  lib/s3-cache-load-secrets.sh    source to load S3 cache secrets into the job (no-op when S3_CACHE_BUCKET empty)
   lib/s3-cache-configure.sh       READ path: add the S3 cache substituter + trusted key to /etc/nix/nix.conf
   lib/s3-cache-push.sh            WRITE path: sign + push the env closure (or given paths) to the S3 cache
   lib/s3-cache-read-proof.sh      deterministic read check: pull the env closure back from the cache, sigs required
