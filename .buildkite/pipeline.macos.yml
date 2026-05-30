@@ -15,7 +15,7 @@
 #
 # Wire it up: set the pipeline's Steps to
 #   - command: buildkite-agent pipeline upload .buildkite/pipeline.macos.yml
-# and point the step's `agents:` at your macOS hosted queue.
+# The step targets the built-in `macos-medium` hosted queue via its `agents:` tag.
 
 env:
   # Pin the Flox version for reproducible installs. Bump deliberately.
@@ -32,8 +32,9 @@ cache:
 
 steps:
   - label: ":apple: install + activate flox (macOS hosted)"
-    # CHANGE THIS to your macOS hosted queue name.
-    agents: { queue: "flox-macos" }
+    # macos-medium is a built-in Buildkite hosted macOS queue. Swap it for
+    # another hosted macOS shape (e.g. macos-large) if you need more resources.
+    agents: { queue: "macos-medium" }
     command: |
       set -euo pipefail
 
