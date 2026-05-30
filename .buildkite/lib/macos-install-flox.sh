@@ -27,8 +27,11 @@ export PATH="/usr/local/bin:$PATH"
 # it's always safe. (Whether this ever triggers tells us if the macOS agent's
 # /nix persists -- a COLD log every build means it's ephemeral.)
 DAEMON_SOCK="/nix/var/nix/daemon-socket/socket"
-if command -v flox >/dev/null 2>&1 && [ -S "$DAEMON_SOCK" ]; then
-  echo "--- WARM agent: flox + nix-daemon already present; skipping the ~40s .pkg install"
+installed_ver="$(flox --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if command -v flox >/dev/null 2>&1 && [ -S "$DAEMON_SOCK" ] && [ "$installed_ver" = "$FLOX_VERSION" ]; then
+  # Skip ONLY when the pinned version is already there -- so bumping FLOX_VERSION
+  # still forces a reinstall on a warm agent instead of silently keeping the old one.
+  echo "--- WARM agent: flox $installed_ver + nix-daemon already present; skipping the ~40s .pkg install"
   flox --version
 else
   echo "--- COLD agent: installing Flox from the .pkg"
