@@ -498,6 +498,17 @@ immediately — and the volume persists across builds *and*
 directive self-hosted agents ignore and `ensure-nix.sh` becomes a no-op on the
 already-warm volume.
 
+**S3 cache on a `/nix` miss.** The volume makes `/nix` reliably warm, but a
+brand-new runner, a wiped volume, or a path the env newly needs is still a
+*miss*. `pipeline.self-hosted.yml` wires in the same S3 binary cache as
+layer 2 (the *backup cache layer* in the diagram above): on a miss, `flox
+activate` substitutes from the S3 cache before going upstream, and each build
+pushes its closure back so a fresh runner repopulates fast. It uses the same
+cluster secrets as the hosted pipeline and is optional — clear `S3_CACHE_BUCKET`
+to run on just the persistent volume. The self-hosted image makes
+`/etc/nix/nix.conf` writable so the runtime configure step works even when the
+base agent image runs jobs as a non-root user.
+
 ## Run it locally
 
 ```bash
@@ -541,7 +552,7 @@ docker compose exec agent du -sh /nix
 .buildkite/
   agent-image/Dockerfile          hosted Linux agent image: Flox + SEED_PACKAGES + /opt/nix-seed
   pipeline.yml                    hosted Linux steps: validate + activate, with the /nix volume + S3 cache (layers 1-3)
-  pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check)
+  pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check + S3 cache on a /nix miss)
   pipeline.macos.yml              steps for a macOS hosted queue (per-build .pkg install)
   pipeline.region-discovery.yml   informational: print a hosted Linux agent's egress IP + region
   pipeline.s3-cache.yml           S3 binary-cache round-trip: configure read + activate + push back + read-proof

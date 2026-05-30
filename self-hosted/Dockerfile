@@ -59,6 +59,12 @@ RUN set -eux; \
 
 RUN chmod -R a+rwX /nix
 
+# Let the job user append the S3-cache substituter to /etc/nix/nix.conf at runtime
+# (.buildkite/lib/s3-cache-configure.sh) without sudo, in case the agent runs jobs
+# as a non-root user. nix.conf lives in the image (not the /nix volume), so this
+# resets per container start; the configure script re-applies it idempotently.
+RUN chmod a+rw /etc/nix/nix.conf
+
 # Seed stash for parity with the hosted image. Not needed when /nix is a Docker
 # named volume (Docker auto-populates it from the image), but it lets the same
 # .buildkite/lib/ensure-nix.sh self-heal if you ever mount an empty bind mount.

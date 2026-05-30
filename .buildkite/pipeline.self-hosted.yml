@@ -6,6 +6,13 @@
 # is warm by construction after the first build populates it -- no locality
 # lottery, no best-effort caveat.
 #
+# S3 cache on a /nix MISS: the persistent volume is warm, but a brand-new runner,
+# a wiped volume, or a path the env newly needs is still a miss. For those, this
+# pipeline points Flox/Nix at the S3 binary cache (the "backup cache layer near
+# the runners" from the README) so the miss is served from there before going
+# upstream, and pushes each build's closure back so a fresh runner repopulates
+# fast. Optional: clear S3_CACHE_BUCKET to run on just the persistent volume.
+#
 # This pipeline's job is to make that warmth *visible*. Run a build, then run a
 # second build: build #1 downloads the env's closure (you'll see flox realise it
 # and a multi-second `time`); build #2 prints no download output, an already-large
@@ -20,21 +27,44 @@
 #   - command: buildkite-agent pipeline upload .buildkite/pipeline.self-hosted.yml
 # so the real steps below live in version control.
 
+# Non-secret S3 binary-cache config -- same as the hosted pipeline.yml; the read
+# path serves /nix MISSES from the cache. Swap for your store, or clear
+# S3_CACHE_BUCKET to disable. Secrets (S3_CACHE_ACCESS_KEY_ID / _SECRET_ACCESS_KEY
+# / S3_CACHE_SIGNING_KEY) are cluster secrets fetched via buildkite-agent secret
+# get; a self-hosted agent in the cluster can read them.
+env:
+  S3_CACHE_BUCKET: "flox-binary-cache"
+  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  S3_CACHE_REGION: "auto"
+  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+
 steps:
-  - label: ":flox: activate (self-hosted, warm-check)"
+  - label: ":flox: activate (self-hosted, warm-check + S3 miss fallback)"
     agents: { queue: "flox-self-hosted" }
     command: |
+      set -euo pipefail
       echo "--- /nix size at job START (warm => already large; cold #1 => just the baked store)"
-      du -sh /nix 2>/dev/null
+      du -sh /nix 2>/dev/null || true
       echo "--- /nix/store path count at START (warm #2 already includes the env closure)"
       ls /nix/store | wc -l
       echo "--- flox on PATH?"
       command -v flox
+
+      # On a /nix MISS, fall back to the S3 cache before upstream. `source` so the
+      # loaded creds persist into `flox activate` and the push. No-op when the
+      # cache is disabled (S3_CACHE_BUCKET empty) -- then it's volume-only.
+      source .buildkite/lib/s3-cache-load-secrets.sh
+      bash .buildkite/lib/s3-cache-configure.sh
+
       echo "--- activate the repo env and run the sentinel package binary (timed)"
-      echo "    cold #1: flox downloads the env closure -> multi-second 'real'"
-      echo "    warm #2: no download output             -> sub-second 'real'"
+      echo "    cold #1 / miss: flox pulls the closure (from S3 if present, else upstream)"
+      echo "    warm #2:        no download output -> sub-second 'real'"
       time flox activate -- hello
       echo "--- /nix size AFTER activate (grows once on #1, then holds across builds)"
-      du -sh /nix 2>/dev/null
+      du -sh /nix 2>/dev/null || true
       echo "--- /nix/store path count AFTER"
       ls /nix/store | wc -l
+
+      # Push this build's closure back so a fresh/wiped runner repopulates fast
+      # from the cache. No-op when the cache is disabled.
+      bash .buildkite/lib/s3-cache-push.sh
