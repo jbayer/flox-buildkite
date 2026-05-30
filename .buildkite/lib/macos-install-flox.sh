@@ -47,8 +47,9 @@ flox --version
 # --- S3 binary cache (optional; layer-2 read + write-back) ----------------------
 # macOS is multi-user Nix, so reads go through the root daemon -- see
 # macos-s3-daemon-auth.sh. The read setup is made NON-FATAL: a macOS quirk falls
-# back to upstream (slower) instead of breaking the build. Watch the activate log
-# for "from 's3://...'" to confirm the daemon actually used the cache.
+# back to upstream (slower) instead of breaking the build. flox hides the
+# substituter source, so the clearest proof the cache is wired is the WRITE-BACK
+# (`+++ pushing ... to s3://...` / `--- push complete`) at the end of this step.
 #
 # Put `nix` on PATH for the cache scripts (flox bundles nix, but the .pkg's nix
 # CLI lives in the multi-user profile, not necessarily on the job PATH).
@@ -56,6 +57,24 @@ if ! command -v nix >/dev/null 2>&1; then
   for d in /nix/var/nix/profiles/default/bin /run/current-system/sw/bin; do
     if [ -x "$d/nix" ]; then export PATH="$d:$PATH"; break; fi
   done
+fi
+# macOS: Nix's curl uses OpenSSL, which has NO default CA bundle here, so
+# client-side TLS (`nix copy` to/from the S3 cache) fails with curlCode 60
+# ("unable to get local issuer certificate"). Point it at a CA bundle. (The
+# nix-daemon already has this via its launchd plist; this is for the job's own
+# nix client -- the push and any client read.) Linux finds its CA automatically.
+if [ -z "${NIX_SSL_CERT_FILE:-}" ]; then
+  for ca in \
+    /nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt \
+    /etc/ssl/cert.pem \
+    "$HOME/.nix-profile/etc/ssl/certs/ca-bundle.crt"; do
+    if [ -f "$ca" ]; then export NIX_SSL_CERT_FILE="$ca"; break; fi
+  done
+  if [ -n "${NIX_SSL_CERT_FILE:-}" ]; then
+    echo "--- client CA bundle: NIX_SSL_CERT_FILE=$NIX_SSL_CERT_FILE"
+  else
+    echo "WARNING: no CA bundle found; client S3 TLS (push) may fail with curlCode 60"
+  fi
 fi
 # Load cache secrets into the env (no-op if S3_CACHE_BUCKET empty). `source` so
 # the creds persist into the daemon-auth, activate, and push below.

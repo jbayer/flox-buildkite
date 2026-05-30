@@ -373,15 +373,19 @@ with a macOS-specific twist for the **read** path:
   daemon** so it reloads the substituter that `s3-cache-configure.sh` added to
   `/etc/nix/nix.conf`.
 - The **write-back** is client-side and works like Linux (uses the job's token).
+  Because macOS Nix's `curl` (OpenSSL) has **no default CA bundle**, the client
+  would fail with `curlCode 60` ("unable to get local issuer certificate"); the
+  script sets `NIX_SSL_CERT_FILE` to a CA bundle so the push works.
 - The read setup is **non-fatal**: on any macOS quirk it logs a warning and
   `flox activate` falls back to upstream, so it can't break a working build.
-  Confirm a real cache hit by looking for `copying path '…' from
-  's3://flox-binary-cache'` in the activate output.
+  flox hides the substituter source, so the clearest proof the cache is wired is
+  the **write-back** (`+++ pushing … to s3://…` → `--- push complete`) at the end
+  of the step.
 
-> ⚠️ Verified on Linux against a real bucket; the **macOS daemon path is not yet
-> verified from this repo's dev container** (no macOS to test on). The daemon's
-> launchd label, config reload, and reading of `/var/root/.aws/credentials` are
-> the bits to confirm on the first real macOS build.
+> ✅ Verified on a real macOS hosted build (`macos-medium`): daemon label
+> auto-discovered as `org.nixos.nix-daemon`, restart + reload worked, and
+> `flox activate` succeeded. The first run surfaced a client-side `curlCode 60`
+> TLS failure on the push — fixed by setting `NIX_SSL_CERT_FILE` (above).
 
 ---
 
