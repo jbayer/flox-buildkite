@@ -57,7 +57,9 @@ S3="s3://${S3_CACHE_BUCKET}?endpoint=${S3_CACHE_ENDPOINT}&region=${S3_CACHE_REGI
 if [ "$#" -gt 0 ]; then
   paths=("$@")
 else
-  envpath="$(flox activate -- bash -c 'readlink -f "$FLOX_ENV"')"
+  # `cd … && pwd -P` resolves the $FLOX_ENV symlink to its store path portably
+  # (macOS readlink lacks -f before 12.3).
+  envpath="$(flox activate -- bash -c 'cd "$FLOX_ENV" && pwd -P')"
   paths=("$envpath")
 fi
 

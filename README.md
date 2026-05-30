@@ -359,9 +359,33 @@ For the activate to work on macOS, the repo env must list `aarch64-darwin` in
 lockfile that includes it.
 
 The honest trade-off vs Linux: macOS loses image baking, so Flox can't be made
-install-free there — only install-fast (cache the `.pkg`) and closure-warm. To
-make cold builds genuinely fast, point Flox/Nix at a local file-based cache kept
-on a cache volume, and/or a remote S3-compatible binary cache near the runners.
+install-free there — only install-fast (cache the `.pkg`) and closure-warm.
+
+**Closure warmth comes from the S3 binary cache**, wired into
+`pipeline.macos.yml` (there is no `/nix` cache volume on macOS). It uses the same
+`S3_CACHE_*` config and cluster secrets as the hosted/​self-hosted pipelines, but
+with a macOS-specific twist for the **read** path:
+
+- macOS Nix is **multi-user**, so the **root `nix-daemon`** — not the job —
+  performs substitute downloads, and the job's S3 token never reaches it.
+  `macos-s3-daemon-auth.sh` therefore writes the token to root's
+  `~/.aws/credentials` (where the daemon's `aws-sdk` looks) and **restarts the
+  daemon** so it reloads the substituter that `s3-cache-configure.sh` added to
+  `/etc/nix/nix.conf`.
+- The **write-back** is client-side and works like Linux (uses the job's token).
+  Because macOS Nix's `curl` (OpenSSL) has **no default CA bundle**, the client
+  would fail with `curlCode 60` ("unable to get local issuer certificate"); the
+  script sets `NIX_SSL_CERT_FILE` to a CA bundle so the push works.
+- The read setup is **non-fatal**: on any macOS quirk it logs a warning and
+  `flox activate` falls back to upstream, so it can't break a working build.
+  flox hides the substituter source, so the clearest proof the cache is wired is
+  the **write-back** (`+++ pushing … to s3://…` → `--- push complete`) at the end
+  of the step.
+
+> ✅ Verified on a real macOS hosted build (`macos-medium`): daemon label
+> auto-discovered as `org.nixos.nix-daemon`, restart + reload worked, and
+> `flox activate` succeeded. The first run surfaced a client-side `curlCode 60`
+> TLS failure on the push — fixed by setting `NIX_SSL_CERT_FILE` (above).
 
 ---
 
@@ -561,7 +585,8 @@ docker compose exec agent du -sh /nix
   lib/s3-cache-configure.sh       READ path: add the S3 cache substituter + trusted key to /etc/nix/nix.conf
   lib/s3-cache-push.sh            WRITE path: sign + push the env closure (or given paths) to the S3 cache
   lib/s3-cache-read-proof.sh      deterministic read check: pull the env closure back from the cache, sigs required
-  lib/macos-install-flox.sh       installs Flox from the macOS .pkg, then activates the env
+  lib/macos-install-flox.sh       installs Flox from the macOS .pkg, wires the S3 cache, activates the env
+  lib/macos-s3-daemon-auth.sh     macOS: give the root nix-daemon S3 creds + restart it (private-bucket reads)
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
 self-hosted/                      run a self-hosted agent locally (reliably warm /nix)

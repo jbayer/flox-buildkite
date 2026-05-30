@@ -20,6 +20,14 @@
 env:
   # Pin the Flox version for reproducible installs. Bump deliberately.
   FLOX_VERSION: "1.12.1"
+  # S3 binary cache (layer 2). macOS has no /nix cache volume, so this is the main
+  # way to warm cold builds. Reads go through the root nix-daemon (see
+  # macos-s3-daemon-auth.sh); writes are client-side. Same non-secret config and
+  # cluster secrets as pipeline.yml. Clear S3_CACHE_BUCKET to disable.
+  S3_CACHE_BUCKET: "flox-binary-cache"
+  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  S3_CACHE_REGION: "auto"
+  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
 
 # Cache the downloaded .pkg so re-installs skip the download. This volume holds
 # ONLY the installer (~hundreds of MB) -- NOT the Nix store, which on macOS lives
@@ -43,9 +51,12 @@ steps:
     # agent does not preserve shell state across inline `command: |` lines.
     command: bash .buildkite/lib/macos-install-flox.sh
 
-# Making cold builds fast (optional, infra-dependent):
-# Because /nix cannot be a cache volume here, warm the *packages* with a Nix
-# substituter instead -- a binary cache the agent pulls prebuilt store paths from.
-# Either a local file:// cache kept on a Buildkite cache volume, or a remote
-# S3-compatible binary cache near the runners. `flox activate` then fetches the
-# closure from that cache rather than building/downloading it from upstream.
+# Cold-build warmth comes from the S3 binary cache wired in above (there is no
+# /nix cache volume on macOS). The macOS twist: Nix here is MULTI-USER, so the
+# root nix-daemon -- not the job -- performs substitute downloads, and the job's
+# S3 token never reaches it. So macos-install-flox.sh, via macos-s3-daemon-auth.sh:
+#   - writes the token to root's ~/.aws/credentials (where the daemon looks), and
+#   - restarts the nix-daemon so it reloads the substituter from /etc/nix/nix.conf.
+# The read setup is non-fatal: on any macOS quirk it logs a warning and `flox
+# activate` falls back to upstream. Confirm a cache hit by looking for
+# "copying path '...' from 's3://flox-binary-cache'" in the activate output.
