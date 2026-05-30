@@ -21,12 +21,16 @@ env:
   # Pin the Flox version for reproducible installs. Bump deliberately.
   FLOX_VERSION: "1.12.1"
 
-# Cache the downloaded .pkg so re-installs skip the download. macOS cache volumes
-# are sparse-bundle backed and best-effort (~14-day retention), same as Linux.
-# The path is a sub-path of /tmp (bare /tmp and /private are reserved).
+# Cache the downloaded .pkg so re-installs skip the download. This volume holds
+# ONLY the installer (~hundreds of MB) -- NOT the Nix store, which on macOS lives
+# on the system /nix APFS volume and can't be cached here. 5g is generous headroom
+# for one .pkg. (To warm the env closure too, you'd add a local Nix binary cache
+# on a volume and size it to the closure -- see the note at the bottom.) macOS
+# cache volumes are sparse-bundle backed and best-effort (~14-day retention), same
+# as Linux. The path is a sub-path of /tmp (bare /tmp and /private are reserved).
 cache:
   name: "flox-macos-pkg"
-  size: "2g"
+  size: "5g"
   paths:
     - "/tmp/flox-cache"
 
