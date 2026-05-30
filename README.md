@@ -136,6 +136,21 @@ persists `/nix` naturally. On hosted agents the volume is the best available,
 and it's worth it only when the env closure is large enough that re-downloading
 it costs more than the ~seconds the seed adds.
 
+## Where hosted agents run
+
+Buildkite hosted agents run in a US East Coast **private cloud** — not AWS/GCP/
+Azure. `.buildkite/pipeline.region-discovery.yml` confirms this empirically: a
+hosted Linux job egresses from **Northern Virginia** (Leesburg, VA; IATA `iad`)
+on **Namespace** (`nscluster.cloud`, ASN `AS401483`), and the AWS/GCP/Azure
+metadata endpoints answer nothing.
+
+Why it matters: when the cache volume isn't re-attached (a cold mount), the
+fallback is to re-fetch the closure from upstream. The mitigation is a
+**layered, S3-compatible binary cache** (a Nix substituter) — and it should
+live **close to `iad` / `us-east-1`** so cold builds pull from nearby storage
+at low latency. Re-run the region-discovery pipeline to re-check the location,
+since Buildkite notes the egress ranges can change.
+
 ## Baking common packages (`SEED_PACKAGES`)
 
 The cache volume is best-effort, so cold mounts happen. To make even cold builds
