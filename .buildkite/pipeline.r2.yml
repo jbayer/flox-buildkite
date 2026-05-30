@@ -44,8 +44,10 @@ steps:
       export AWS_ACCESS_KEY_ID="$(buildkite-agent secret get R2_ACCESS_KEY_ID)"
       export AWS_SECRET_ACCESS_KEY="$(buildkite-agent secret get R2_SECRET_ACCESS_KEY)"
       export R2_CACHE_SIGNING_KEY="$(buildkite-agent secret get R2_CACHE_SIGNING_KEY)"
-      # Hide the signing key from `buildkite-agent`'s own log redaction edge-cases.
-      buildkite-agent redactor add <<<"$R2_CACHE_SIGNING_KEY" || true
+      # Register the signing key with the log redactor. Escape as $$ so Buildkite
+      # does NOT interpolate it at pipeline-upload time (it would blank it out);
+      # the runtime shell then sees the real $R2_CACHE_SIGNING_KEY value.
+      buildkite-agent redactor add <<<"$$R2_CACHE_SIGNING_KEY" || true
 
       echo "--- READ path: point Flox/Nix at the R2 substituter"
       bash .buildkite/lib/r2-configure.sh
@@ -57,21 +59,4 @@ steps:
       bash .buildkite/lib/r2-push.sh
 
       echo "--- READ-PROOF: pull that closure back FROM R2 into a fresh store"
-      # Deterministic proof the agent reads from R2 -- independent of whether the
-      # /nix volume happened to mount cold. We copy the just-pushed env closure
-      # from R2 into an empty throwaway store with signatures REQUIRED, so it can
-      # only succeed if R2 served signed paths the agent's trusted key accepts.
-      export AWS_EC2_METADATA_DISABLED=true
-      envpath="$(flox activate -- bash -c 'readlink -f "$FLOX_ENV"')"
-      s3="s3://${R2_BUCKET}?endpoint=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com&region=auto"
-      proof_store="$(mktemp -d)/store"
-      nix --extra-experimental-features 'nix-command' \
-        copy --from "$s3" --to "$proof_store" --option require-sigs true "$envpath"
-      if [ -e "${proof_store}/nix/store/$(basename "$envpath")" ]; then
-        echo "+++ READ-PROOF OK: $(basename "$envpath") restored from R2 (signature-verified)"
-      else
-        echo "!!! READ-PROOF FAILED: path absent after copy from R2" >&2
-        exit 1
-      fi
-      chmod -R +w "$proof_store" 2>/dev/null || true
-      rm -rf "$(dirname "$proof_store")"
+      bash .buildkite/lib/r2-read-proof.sh

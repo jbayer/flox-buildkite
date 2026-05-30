@@ -516,6 +516,7 @@ docker compose exec agent du -sh /nix
   lib/ensure-nix.sh               seeds the /nix cache volume from /opt/nix-seed when cold
   lib/r2-configure.sh             READ path: add the R2 substituter + trusted key to /etc/nix/nix.conf
   lib/r2-push.sh                  WRITE path: sign + push the env closure (or given paths) to R2
+  lib/r2-read-proof.sh            deterministic read check: pull the env closure back from R2, sigs required
   lib/macos-install-flox.sh       installs Flox from the macOS .pkg, then activates the env
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
