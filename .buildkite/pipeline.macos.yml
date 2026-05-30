@@ -1,0 +1,80 @@
+# Buildkite pipeline for Flox on a macOS HOSTED agent.
+#
+# macOS hosted agents differ from Linux in two ways that shape this file:
+#   1. No custom agent images -- you cannot bake Flox into the base image, so
+#      Flox is installed per build from its .pkg (the unavoidable per-build cost;
+#      Phase 1 from the Linux flow does not exist here).
+#   2. The Nix store lives on a system-managed /nix APFS volume with a nix-daemon,
+#      so you cannot bind-mount a cache volume over /nix like on Linux. Warmth, if
+#      you need it, comes from a Nix binary cache / substituter, not from caching
+#      the /nix mount (see the note at the bottom).
+#
+# PREREQUISITE -- passwordless sudo. Installing the .pkg writes the /nix APFS
+# volume, a nix-daemon LaunchDaemon, and nixbld users, all of which need root.
+# The first step probes `sudo -n true` and fails fast if the queue lacks it.
+#
+# Wire it up: set the pipeline's Steps to
+#   - command: buildkite-agent pipeline upload .buildkite/pipeline.macos.yml
+# and point the step's `agents:` at your macOS hosted queue.
+
+env:
+  # Pin the Flox version for reproducible installs. Bump deliberately.
+  FLOX_VERSION: "1.12.1"
+
+# Cache the downloaded .pkg so re-installs skip the download. macOS cache volumes
+# are sparse-bundle backed and best-effort (~14-day retention), same as Linux.
+# The path is a sub-path of /tmp (bare /tmp and /private are reserved).
+cache:
+  name: "flox-macos-pkg"
+  size: "2g"
+  paths:
+    - "/tmp/flox-cache"
+
+steps:
+  - label: ":apple: install + activate flox (macOS hosted)"
+    # CHANGE THIS to your macOS hosted queue name.
+    agents: { queue: "flox-macos" }
+    command: |
+      set -euo pipefail
+
+      echo "--- the .pkg install needs root -- check passwordless sudo first"
+      if ! sudo -n true 2>/dev/null; then
+        echo "NO passwordless sudo on this queue. The Flox .pkg cannot create the"
+        echo "/nix APFS volume + nix-daemon without it. See README (macOS section)."
+        exit 1
+      fi
+
+      PKG="/tmp/flox-cache/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
+      if [ ! -f "$PKG" ]; then
+        echo "--- download Flox ${FLOX_VERSION} .pkg (cold; cached for next build)"
+        mkdir -p "$(dirname "$PKG")"
+        curl -fsSL \
+          "https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg" \
+          -o "$PKG"
+      else
+        echo "--- reuse cached .pkg ($PKG)"
+      fi
+
+      echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root)"
+      sudo installer -pkg "$PKG" -target /
+
+      echo "--- load the daemon env into this non-interactive shell"
+      # Multi-user Nix exposes its daemon + store via this profile script.
+      source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+      # The .pkg installs the flox binary under /usr/local/bin; make sure it is on
+      # PATH for this non-interactive shell.
+      export PATH="/usr/local/bin:$PATH"
+      # If a later flox call cannot reach the daemon, kickstart it:
+      #   sudo launchctl kickstart -k system/org.nixos.nix-daemon
+      flox --version
+
+      echo "--- activate the repo env and run the sentinel"
+      # Requires aarch64-darwin in .flox/env/manifest.toml [options] systems.
+      time flox activate -- hello
+
+# Making cold builds fast (optional, infra-dependent):
+# Because /nix cannot be a cache volume here, warm the *packages* with a Nix
+# substituter instead -- a binary cache the agent pulls prebuilt store paths from.
+# Either a local file:// cache kept on a Buildkite cache volume, or a remote
+# S3-compatible binary cache near the runners. `flox activate` then fetches the
+# closure from that cache rather than building/downloading it from upstream.

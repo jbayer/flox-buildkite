@@ -87,10 +87,12 @@ on-activate = '''
 ## Other Environment Options -----------------------------------------
 [options]
 # Systems that environment is compatible with.
-# Both Linux arches so the same env works on amd64 or arm64 Buildkite queues.
+# Linux + macOS arches so the same env works on Buildkite Linux queues (amd64/
+# arm64) and macOS hosted agents (Apple silicon = aarch64-darwin).
 systems = [
   "aarch64-linux",
   "x86_64-linux",
+  "aarch64-darwin",
 ]
 # Uncomment to disable CUDA detection.
 # cuda-detection = false

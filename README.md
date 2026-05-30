@@ -344,3 +344,41 @@ docker compose exec agent du -sh /nix
 - Pin `FLOX_VERSION` in the Dockerfile for reproducible agent images.
 - If the validate step prints `NO: /nix not writable`, that's the one thing to
   tune in the Dockerfile for your queue's job user.
+
+---
+
+# macOS hosted agents
+
+Buildkite's **macOS** hosted agents work differently from Linux, so Flox is set
+up differently — see `.buildkite/pipeline.macos.yml`. Two constraints drive the
+approach:
+
+- **No custom agent images.** Unlike Linux, you can't bake Flox into the base
+  image, so Flox is installed **per build** from its macOS `.pkg`. That install
+  is the unavoidable cost here — the Linux Phase 1 (bake into the image) doesn't
+  exist on macOS.
+- **`/nix` is a system APFS volume with a daemon.** macOS Nix is multi-user
+  only, so you can't bind-mount a cache volume over `/nix` as on Linux. Warmth,
+  when you need it, comes from a Nix **binary cache / substituter**, not from
+  caching the `/nix` mount.
+
+What the example pipeline does:
+
+1. **Checks for passwordless sudo** and fails fast if it's missing. The `.pkg`
+   creates the `/nix` APFS volume, the `nix-daemon`, and `nixbld` users — all of
+   which need root. Validate this on your queue first (`sudo -n true`); it's the
+   one thing that can block the whole approach.
+2. **Installs the pinned `.pkg`**, caching the download on a best-effort cache
+   volume so re-installs skip it:
+   `sudo installer -pkg flox-$FLOX_VERSION.aarch64-darwin.pkg -target /`.
+3. **Sources the daemon profile** (non-interactive shells don't) and runs the
+   same sentinel as the other queues: `flox activate -- hello`.
+
+For the activate to work on macOS, the repo env must list `aarch64-darwin` in
+`.flox/env/manifest.toml` `[options] systems` (added) with a regenerated
+lockfile that includes it.
+
+The honest trade-off vs Linux: macOS loses image baking, so Flox can't be made
+install-free there — only install-fast (cache the `.pkg`) and closure-warm. To
+make cold builds genuinely fast, point Flox/Nix at a local file-based cache kept
+on a cache volume, and/or a remote S3-compatible binary cache near the runners.
