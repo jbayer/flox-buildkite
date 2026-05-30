@@ -54,6 +54,35 @@ ENV NIX_REMOTE=auto
 # Fail the image build early if Flox installed correctly.
 RUN flox --version
 
+# --- Optional: bake the R2 binary-cache READ path into the image ----------------
+# The R2 substituter pointer is NON-SECRET (bucket, account id, public key), so it
+# can live in the image as reliable Phase-1 config -- present on every build with
+# no runtime step. When R2_BUCKET is set, write the substituter + trusted key into
+# /etc/nix/nix.conf (the file Flox's bundled Nix reads). Default is empty = skip.
+#
+# Like SEED_PACKAGES, the Buildkite UI image editor builds this Dockerfile as-is
+# (no --build-arg), so to enable baking you edit these ARG defaults. The runtime
+# alternative that needs no image rebuild is .buildkite/lib/r2-configure.sh, used
+# by .buildkite/pipeline.r2.yml.
+#
+# Authenticating READS of a PRIVATE bucket still needs the R2 API token in the job
+# environment at runtime (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY); only the
+# non-secret pointer is baked here. WRITE-back is always a runtime step -- see
+# .buildkite/lib/r2-push.sh.
+ARG R2_BUCKET=""
+ARG R2_ACCOUNT_ID=""
+ARG R2_CACHE_PUBLIC_KEY=""
+RUN set -eux; \
+    if [ -n "$R2_BUCKET" ]; then \
+        { \
+          echo ""; \
+          echo "# --- flox-binary-cache R2 (CloudFlare) ---"; \
+          echo "extra-substituters = s3://${R2_BUCKET}?endpoint=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com&region=auto"; \
+          echo "extra-trusted-public-keys = ${R2_CACHE_PUBLIC_KEY}"; \
+        } >>/etc/nix/nix.conf; \
+        echo "baked R2 substituter into /etc/nix/nix.conf"; \
+    fi
+
 # --- Configurable seed packages -------------------------------------------------
 # Packages baked into the Nix store at build time so they live in the seed
 # (/opt/nix-seed) and are therefore present in /nix even on a COLD cache volume.

@@ -1,0 +1,57 @@
+# Flox on hosted Linux agents WITH a CloudFlare R2 binary cache (extra Nix
+# substituter). This demonstrates the full round-trip:
+#
+#   READ  -> r2-configure.sh points Flox/Nix at R2, so a cold `flox activate`
+#            substitutes already-built paths from R2 instead of upstream.
+#   BUILD -> `flox activate` realizes the env closure.
+#   WRITE -> r2-push.sh writes that closure back to R2 (signed), so the NEXT
+#            cold build -- on a fresh agent with an empty /nix volume -- can pull
+#            it from R2 at low latency instead of re-downloading from upstream.
+#
+# This is the durable layer the README calls for: the /nix cache volume is
+# best-effort and often cold, and the agent image only bakes a fixed seed; R2 is
+# the cache that reliably holds whatever each build actually produced. Keep it
+# close to the hosted-agent egress region (iad / us-east-1) for fast cold pulls.
+#
+# ---------------------------------------------------------------------------
+# Secrets (Agents -> your cluster -> Secrets). Fetched at runtime; never baked:
+#   R2_ACCESS_KEY_ID       R2 API token: Access Key ID  (S3-compatible)
+#   R2_SECRET_ACCESS_KEY   R2 API token: Secret Access Key
+#   R2_CACHE_SIGNING_KEY   the Nix secret signing key TEXT (guard this one)
+#
+# Non-secret config below in `env:` -- swap for your bucket/account/public key.
+# (The public key is the *public* half of R2_CACHE_SIGNING_KEY; safe to commit.)
+# ---------------------------------------------------------------------------
+
+cache:
+  name: "flox-nix-store"
+  size: "50g"
+  paths:
+    - "/nix"
+
+env:
+  R2_BUCKET: "flox-binary-cache"
+  R2_ACCOUNT_ID: "9892590b4348951ecded3b9ea40c8c60"
+  R2_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+
+steps:
+  - label: ":floppy_disk: flox + R2 round-trip (read, activate, write back)"
+    command: |
+      set -euo pipefail
+      bash .buildkite/lib/ensure-nix.sh
+
+      echo "--- load R2 secrets into the environment"
+      export AWS_ACCESS_KEY_ID="$(buildkite-agent secret get R2_ACCESS_KEY_ID)"
+      export AWS_SECRET_ACCESS_KEY="$(buildkite-agent secret get R2_SECRET_ACCESS_KEY)"
+      export R2_CACHE_SIGNING_KEY="$(buildkite-agent secret get R2_CACHE_SIGNING_KEY)"
+      # Hide the signing key from `buildkite-agent`'s own log redaction edge-cases.
+      buildkite-agent redactor add <<<"$R2_CACHE_SIGNING_KEY" || true
+
+      echo "--- READ path: point Flox/Nix at the R2 substituter"
+      bash .buildkite/lib/r2-configure.sh
+
+      echo "--- activate the repo env (cold: substitutes the closure from R2)"
+      time flox activate -- hello
+
+      echo "--- WRITE path: push the activated env closure back to R2 (signed)"
+      bash .buildkite/lib/r2-push.sh

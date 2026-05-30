@@ -357,6 +357,97 @@ on a cache volume, and/or a remote S3-compatible binary cache near the runners.
 
 ---
 
+# Durable cache: a CloudFlare R2 binary cache (Nix substituter)
+
+The `/nix` cache volume is best-effort and the agent image only bakes a *fixed*
+seed. Neither reliably holds **what a given build actually produced**. The
+durable layer that does is an **S3-compatible Nix binary cache** — a
+*substituter* — that every build reads from and writes back to. This repo wires
+one up on **CloudFlare R2**, chosen because it's S3-compatible, has **zero
+egress fees** (a binary cache is read-heavy), and can sit close to the hosted
+agents' egress region (`iad` / `us-east-1`) for fast cold pulls.
+
+It works because Flox shells out to its own bundled Nix, which reads
+`/etc/nix/nix.conf` — so an `extra-substituters` line there makes a cold
+`flox activate` **pull prebuilt paths from R2** instead of from upstream.
+
+```
+R2 BINARY CACHE — the durable layer, read on cold builds, written on every build
+────────────────────────────────────────────────────────────────────────────
+   flox activate ──▶ path in /nix?  ──no──▶ R2 substituter? ──hit──▶ pull   ✅
+                                                  └─miss─▶ upstream (cold)  ⏳
+        each build ──▶ r2-push.sh writes its env closure back to R2  ──────┘
+                       so the NEXT cold build finds it warm in R2
+```
+
+## Two halves: read and write
+
+| Half | Script | What it does |
+| --- | --- | --- |
+| **Read** | `.buildkite/lib/r2-configure.sh` | Idempotently adds the R2 `extra-substituters` + trusted public key to `/etc/nix/nix.conf`. Inputs are **non-secret**, so you can bake them into the agent image instead (`agent-image/Dockerfile`, the `R2_*` ARGs). |
+| **Write** | `.buildkite/lib/r2-push.sh` | Signs and pushes the activated env's closure (`$FLOX_ENV`) — or explicit store paths — to R2 with `nix copy --to s3://…`. |
+
+`.buildkite/pipeline.r2.yml` runs the whole round-trip in one step:
+**configure (read) → `flox activate` → push back (write)**.
+
+## One-time setup
+
+1. **Bucket + API token.** Create an R2 bucket (e.g. `flox-binary-cache`) and an
+   R2 **API token** with *Object Read & Write*, scoped to that bucket. The token
+   is **S3-compatible** — it gives an **Access Key ID** + **Secret Access Key**;
+   the bucket's S3 endpoint is `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+2. **Signing keypair.** A cache must sign paths so other machines trust them:
+   ```bash
+   nix --extra-experimental-features nix-command key generate-secret \
+       --key-name flox-binary-cache-1 > secret.key
+   nix --extra-experimental-features nix-command key convert-secret-to-public \
+       < secret.key > public.key
+   ```
+   `public.key` is the non-secret `R2_CACHE_PUBLIC_KEY` (goes in nix.conf / the
+   pipeline `env:`). `secret.key`'s **text** is the secret `R2_CACHE_SIGNING_KEY`.
+
+## Wiring it on Buildkite
+
+Set these as **cluster secrets** (Agents → cluster → Secrets); they're fetched
+at runtime via `buildkite-agent secret get` and never baked into the image:
+
+| Secret | Value |
+| --- | --- |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | the R2 API token |
+| `R2_CACHE_SIGNING_KEY` | the **text** of `secret.key` |
+
+The non-secret `R2_BUCKET`, `R2_ACCOUNT_ID`, `R2_CACHE_PUBLIC_KEY` live in the
+pipeline `env:` block (swap them for yours). Point a pipeline's **Steps** at it:
+
+```yaml
+steps:
+  - command: buildkite-agent pipeline upload .buildkite/pipeline.r2.yml
+```
+
+## Private vs public reads
+
+The setup above keeps the bucket **private**: reads go through `s3://` and every
+agent needs the R2 token in its environment. If you'd rather agents read
+**without credentials**, enable the bucket's public **r2.dev** URL (or a custom
+domain) and use it as a plain `https://` substituter — writes still use the
+authenticated `s3://` push. Store paths are content-addressed build artifacts,
+so a public-read cache is the norm (it's how `cache.nixos.org` works); the
+trade-off is the cache contents become world-readable.
+
+## Guard the signing key
+
+The R2 token controls bucket access, but the **signing key** is the credential
+that matters most: anyone holding it can place *trusted* paths in your cache.
+Keep it only in Buildkite secrets (and a secure local copy), never in the image
+or the repo. `r2-push.sh` writes it to a `0600` temp file and deletes it on exit.
+
+> Verified locally on this container against a real R2 bucket: signed push,
+> cold-store pull with signature checking, and a `flox install` that fetched a
+> package from R2 as the *only* substituter. The write-back step pushes the
+> `environment-develop` closure so the next cold build can substitute it.
+
+---
+
 # Self-hosted agents (a reliably warm `/nix`)
 
 Everything above is for Buildkite *hosted* agents, where the `/nix` cache
@@ -421,7 +512,10 @@ docker compose exec agent du -sh /nix
   pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check)
   pipeline.macos.yml              steps for a macOS hosted queue (per-build .pkg install)
   pipeline.region-discovery.yml   informational: print a hosted Linux agent's egress IP + region
+  pipeline.r2.yml                 R2 binary-cache round-trip: configure read + activate + push back
   lib/ensure-nix.sh               seeds the /nix cache volume from /opt/nix-seed when cold
+  lib/r2-configure.sh             READ path: add the R2 substituter + trusted key to /etc/nix/nix.conf
+  lib/r2-push.sh                  WRITE path: sign + push the env closure (or given paths) to R2
   lib/macos-install-flox.sh       installs Flox from the macOS .pkg, then activates the env
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
