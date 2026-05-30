@@ -1,0 +1,73 @@
+# Flox on hosted Linux agents WITH an S3-compatible Nix binary cache (extra
+# substituter). Works with ANY S3-compatible store -- AWS S3, CloudFlare R2,
+# MinIO, Ceph RGW, Backblaze B2, etc. (This repo's example was tested against
+# CloudFlare R2; swap the endpoint/region/bucket below for your provider.)
+#
+# It demonstrates the full round-trip:
+#
+#   READ  -> s3-cache-configure.sh points Flox/Nix at the cache, so a cold
+#            `flox activate` substitutes already-built paths from it.
+#   BUILD -> `flox activate` realizes the env closure.
+#   WRITE -> s3-cache-push.sh writes that closure back to the cache (signed), so
+#            the NEXT cold build -- on a fresh agent with an empty /nix volume --
+#            can pull it from the cache instead of re-downloading from upstream.
+#   PROVE -> s3-cache-read-proof.sh pulls the closure back with signatures
+#            required, proving the read leg deterministically.
+#
+# This is the durable layer the README calls for: the /nix cache volume is
+# best-effort and often cold, and the agent image only bakes a fixed seed; the
+# S3 cache reliably holds whatever each build produced. Keep it close to the
+# hosted-agent egress region (iad / us-east-1) for fast cold pulls.
+#
+# ---------------------------------------------------------------------------
+# Secrets (Agents -> your cluster -> Secrets). Fetched at runtime; never baked:
+#   S3_CACHE_ACCESS_KEY_ID       cache S3 access key id
+#   S3_CACHE_SECRET_ACCESS_KEY   cache S3 secret access key
+#   S3_CACHE_SIGNING_KEY         the Nix secret signing key TEXT (guard this one)
+#
+# Non-secret config below in `env:` -- swap for your bucket/endpoint/public key.
+# (The public key is the *public* half of S3_CACHE_SIGNING_KEY; safe to commit.)
+# S3_CACHE_ENDPOINT examples:
+#   CloudFlare R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com  (region auto)
+#   AWS S3:        https://s3.us-east-1.amazonaws.com             (region us-east-1)
+#   MinIO:         https://minio.example.com:9000                 (region us-east-1)
+# ---------------------------------------------------------------------------
+
+cache:
+  name: "flox-nix-store"
+  size: "50g"
+  paths:
+    - "/nix"
+
+env:
+  S3_CACHE_BUCKET: "flox-binary-cache"
+  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  S3_CACHE_REGION: "auto"
+  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+
+steps:
+  - label: ":floppy_disk: flox + S3 cache round-trip (read, activate, write back)"
+    command: |
+      set -euo pipefail
+      bash .buildkite/lib/ensure-nix.sh
+
+      echo "--- load S3 cache secrets into the environment"
+      export AWS_ACCESS_KEY_ID="$(buildkite-agent secret get S3_CACHE_ACCESS_KEY_ID)"
+      export AWS_SECRET_ACCESS_KEY="$(buildkite-agent secret get S3_CACHE_SECRET_ACCESS_KEY)"
+      export S3_CACHE_SIGNING_KEY="$(buildkite-agent secret get S3_CACHE_SIGNING_KEY)"
+      # Register the signing key with the log redactor. Escape as $$ so Buildkite
+      # does NOT interpolate it at pipeline-upload time (it would blank it out);
+      # the runtime shell then sees the real $S3_CACHE_SIGNING_KEY value.
+      buildkite-agent redactor add <<<"$$S3_CACHE_SIGNING_KEY" || true
+
+      echo "--- READ path: point Flox/Nix at the S3 cache substituter"
+      bash .buildkite/lib/s3-cache-configure.sh
+
+      echo "--- activate the repo env (cold: substitutes the closure from the cache)"
+      time flox activate -- hello
+
+      echo "--- WRITE path: push the activated env closure back to the cache (signed)"
+      bash .buildkite/lib/s3-cache-push.sh
+
+      echo "--- READ-PROOF: pull that closure back FROM the cache into a fresh store"
+      bash .buildkite/lib/s3-cache-read-proof.sh

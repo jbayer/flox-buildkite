@@ -54,33 +54,39 @@ ENV NIX_REMOTE=auto
 # Fail the image build early if Flox installed correctly.
 RUN flox --version
 
-# --- Optional: bake the R2 binary-cache READ path into the image ----------------
-# The R2 substituter pointer is NON-SECRET (bucket, account id, public key), so it
+# --- Optional: bake the S3 binary-cache READ path into the image ----------------
+# Works with any S3-compatible cache (AWS S3, CloudFlare R2, MinIO, Ceph, …). The
+# substituter pointer is NON-SECRET (bucket, endpoint, region, public key), so it
 # can live in the image as reliable Phase-1 config -- present on every build with
-# no runtime step. When R2_BUCKET is set, write the substituter + trusted key into
-# /etc/nix/nix.conf (the file Flox's bundled Nix reads). Default is empty = skip.
+# no runtime step. When S3_CACHE_BUCKET is set, write the substituter + trusted
+# key into /etc/nix/nix.conf (the file Flox's bundled Nix reads). Empty = skip.
 #
 # Like SEED_PACKAGES, the Buildkite UI image editor builds this Dockerfile as-is
 # (no --build-arg), so to enable baking you edit these ARG defaults. The runtime
-# alternative that needs no image rebuild is .buildkite/lib/r2-configure.sh, used
-# by .buildkite/pipeline.r2.yml.
+# alternative that needs no image rebuild is .buildkite/lib/s3-cache-configure.sh,
+# used by .buildkite/pipeline.s3-cache.yml.
 #
-# Authenticating READS of a PRIVATE bucket still needs the R2 API token in the job
-# environment at runtime (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY); only the
+# S3_CACHE_ENDPOINT is the full endpoint URL, e.g.
+#   CloudFlare R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com  (region auto)
+#   AWS S3:        https://s3.us-east-1.amazonaws.com             (region us-east-1)
+#
+# Authenticating READS of a PRIVATE bucket still needs the S3 access key in the
+# job environment at runtime (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY); only the
 # non-secret pointer is baked here. WRITE-back is always a runtime step -- see
-# .buildkite/lib/r2-push.sh.
-ARG R2_BUCKET=""
-ARG R2_ACCOUNT_ID=""
-ARG R2_CACHE_PUBLIC_KEY=""
+# .buildkite/lib/s3-cache-push.sh.
+ARG S3_CACHE_BUCKET=""
+ARG S3_CACHE_ENDPOINT=""
+ARG S3_CACHE_REGION="auto"
+ARG S3_CACHE_PUBLIC_KEY=""
 RUN set -eux; \
-    if [ -n "$R2_BUCKET" ]; then \
+    if [ -n "$S3_CACHE_BUCKET" ]; then \
         { \
           echo ""; \
-          echo "# --- flox-binary-cache R2 (CloudFlare) ---"; \
-          echo "extra-substituters = s3://${R2_BUCKET}?endpoint=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com&region=auto"; \
-          echo "extra-trusted-public-keys = ${R2_CACHE_PUBLIC_KEY}"; \
+          echo "# --- flox S3 binary cache ---"; \
+          echo "extra-substituters = s3://${S3_CACHE_BUCKET}?endpoint=${S3_CACHE_ENDPOINT}&region=${S3_CACHE_REGION}"; \
+          echo "extra-trusted-public-keys = ${S3_CACHE_PUBLIC_KEY}"; \
         } >>/etc/nix/nix.conf; \
-        echo "baked R2 substituter into /etc/nix/nix.conf"; \
+        echo "baked S3 cache substituter into /etc/nix/nix.conf"; \
     fi
 
 # --- Configurable seed packages -------------------------------------------------
