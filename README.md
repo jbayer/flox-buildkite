@@ -401,17 +401,19 @@ docker compose exec agent du -sh /nix
 
 ```
 .buildkite/
-  agent-image/Dockerfile      hosted Linux agent image: Flox + SEED_PACKAGES + /opt/nix-seed
-  pipeline.yml                hosted Linux steps: validate + activate, with the /nix cache volume
-  pipeline.self-hosted.yml    steps for the self-hosted queue (warm-/nix check)
-  pipeline.macos.yml          steps for a macOS hosted queue (per-build .pkg install)
-  lib/ensure-nix.sh           seeds the /nix cache volume from /opt/nix-seed when cold
-  lib/macos-install-flox.sh   installs Flox from the macOS .pkg, then activates the env
-  upload.yml                  the one-line pipeline-upload step for Buildkite settings
-self-hosted/                  run a self-hosted agent locally (reliably warm /nix)
-  Dockerfile                  buildkite-agent + Flox
-  docker-compose.yml          agent + persistent /nix named volume
-  .env.example                where the agent token goes
-.flox/                        a small Flox environment whose `hello` package is the
-                              CI smoke-test sentinel (single source of truth)
+  agent-image/Dockerfile          hosted Linux agent image: Flox + SEED_PACKAGES + /opt/nix-seed
+  pipeline.yml                    hosted Linux steps: validate + activate, with the /nix cache volume
+  pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check)
+  pipeline.macos.yml              steps for a macOS hosted queue (per-build .pkg install)
+  pipeline.region-discovery.yml   informational: print a hosted Linux agent's egress IP + region
+  lib/ensure-nix.sh               seeds the /nix cache volume from /opt/nix-seed when cold
+  lib/macos-install-flox.sh       installs Flox from the macOS .pkg, then activates the env
+  lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
+  upload.yml                      the one-line pipeline-upload step for Buildkite settings
+self-hosted/                      run a self-hosted agent locally (reliably warm /nix)
+  Dockerfile                      buildkite-agent + Flox
+  docker-compose.yml              agent + persistent /nix named volume
+  .env.example                    where the agent token goes
+.flox/                            a small Flox environment whose `hello` package is the
+                                  CI smoke-test sentinel (single source of truth)
 ```
