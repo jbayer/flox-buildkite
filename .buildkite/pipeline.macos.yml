@@ -39,41 +39,9 @@ steps:
     # macos-medium is a built-in Buildkite hosted macOS queue. Swap it for
     # another hosted macOS shape (e.g. macos-large) if you need more resources.
     agents: { queue: "macos-medium" }
-    command: |
-      set -euo pipefail
-
-      echo "--- the .pkg install needs root -- check passwordless sudo first"
-      if ! sudo -n true 2>/dev/null; then
-        echo "NO passwordless sudo on this queue. The Flox .pkg cannot create the"
-        echo "/nix APFS volume + nix-daemon without it. See README (macOS section)."
-        exit 1
-      fi
-
-      PKG="/tmp/flox-cache/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
-      if [ ! -f "$PKG" ]; then
-        echo "--- download Flox ${FLOX_VERSION} .pkg (cold; cached for next build)"
-        mkdir -p "$(dirname "$PKG")"
-        curl -fsSL -o "$PKG" "https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
-      else
-        echo "--- reuse cached .pkg ($PKG)"
-      fi
-
-      echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root)"
-      sudo installer -pkg "$PKG" -target /
-
-      echo "--- load the daemon env into this non-interactive shell"
-      # Multi-user Nix exposes its daemon + store via this profile script.
-      source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-      # The .pkg installs the flox binary under /usr/local/bin; make sure it is on
-      # PATH for this non-interactive shell.
-      export PATH="/usr/local/bin:$PATH"
-      # If a later flox call cannot reach the daemon, kickstart it:
-      #   sudo launchctl kickstart -k system/org.nixos.nix-daemon
-      flox --version
-
-      echo "--- activate the repo env and run the sentinel"
-      # Requires aarch64-darwin in .flox/env/manifest.toml [options] systems.
-      time flox activate -- hello
+    # Single bash invocation so the whole flow runs as ONE real shell -- this
+    # agent does not preserve shell state across inline `command: |` lines.
+    command: bash .buildkite/lib/macos-install-flox.sh
 
 # Making cold builds fast (optional, infra-dependent):
 # Because /nix cannot be a cache volume here, warm the *packages* with a Nix

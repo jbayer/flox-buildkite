@@ -350,8 +350,8 @@ docker compose exec agent du -sh /nix
 # macOS hosted agents
 
 Buildkite's **macOS** hosted agents work differently from Linux, so Flox is set
-up differently — see `.buildkite/pipeline.macos.yml`. Two constraints drive the
-approach:
+up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
+`.buildkite/lib/macos-install-flox.sh`. Two constraints drive the approach:
 
 - **No custom agent images.** Unlike Linux, you can't bake Flox into the base
   image, so Flox is installed **per build** from its macOS `.pkg`. That install
