@@ -66,9 +66,16 @@ SELF-HOSTED AGENTS — you own the disk, so warmth is RELIABLE
   almost never has to download from upstream.
 ```
 
-## The approach
+---
 
-The two hosted phases above map to specific files in this repo:
+# Buildkite hosted agents
+
+On hosted agents you don't own the machine, so you make `/nix/store` fast with
+the two phases above: bake Flox into the custom agent image, and lean on a
+best-effort cache volume. The **Linux** flow is below; **macOS** hosted agents
+work differently and have their own subsection at the end.
+
+## How the two phases map to this repo
 
 | Phase | Where it lives |
 | --- | --- |
@@ -79,7 +86,7 @@ This is the Buildkite equivalent of GitHub's `flox/install-flox-action`
 (install) + `actions/cache` on `/nix` (warm store), done once at the
 image/queue level.
 
-### Caching `/nix` (the seed pattern)
+## The seed pattern (caching `/nix`)
 
 Combining the two phases has a catch: a cache volume mounted at `/nix` is
 **empty on the first build**, which *shadows* the `/nix` baked into the agent
@@ -102,7 +109,7 @@ After a build, the volume holds Flox **and** the env's packages that
 `flox activate` pulled, so a *warm* later build skips both the seed copy and the
 package downloads.
 
-### Best-effort, not durable — read this before trusting the cache
+## Best-effort, not durable
 
 Buildkite hosted-agent cache volumes are **best-effort accelerators, not durable
 storage** ([docs](https://buildkite.com/docs/pipelines/hosted-agents/cache-volumes)).
@@ -129,7 +136,7 @@ persists `/nix` naturally. On hosted agents the volume is the best available,
 and it's worth it only when the env closure is large enough that re-downloading
 it costs more than the ~seconds the seed adds.
 
-### Baking common packages into the seed (`SEED_PACKAGES`)
+## Baking common packages (`SEED_PACKAGES`)
 
 The cache volume is best-effort, so cold mounts happen. To make even cold builds
 fast for the heavy, common dependencies (language runtimes, compilers,
@@ -155,23 +162,7 @@ resolves to the *same* store path (same version from the same catalog). Bake the
 versions your projects actually use, or you'll bake one version and download
 another.
 
-## Layout
-
-```
-.buildkite/
-  agent-image/Dockerfile   custom hosted-agent image: Flox + SEED_PACKAGES + /opt/nix-seed
-  pipeline.yml             real steps: validate + activate, with the /nix cache volume
-  lib/ensure-nix.sh        seeds the /nix cache volume from /opt/nix-seed when cold
-  upload.yml               the one-line pipeline-upload step for Buildkite settings
-self-hosted/               run a self-hosted agent locally (reliably warm /nix)
-  Dockerfile               buildkite-agent + Flox
-  docker-compose.yml       agent + persistent /nix named volume
-  .env.example             where the agent token goes
-.flox/                     a small Flox environment whose `hello` package is the
-                           CI smoke-test sentinel (single source of truth)
-```
-
-## How Flox runs single-user in the container
+## Single-user Flox in the container
 
 The agent container has no `systemd`/`nix-daemon`, so the image sets
 `NIX_REMOTE=auto`, which makes Nix operate on the store directly as the job's
@@ -183,18 +174,18 @@ This was verified locally as a non-root user with `NIX_REMOTE=auto`:
 `flox activate` works and the `hello` package binary runs. The on-Buildkite
 confirmation is the runbook below.
 
----
+## Runbook (Linux)
 
-# Runbook
+The end-to-end setup for a Linux hosted queue.
 
-## Prerequisite — know your queue's architecture
+### Prerequisite — know your queue's architecture
 
 You need a Buildkite **cluster** with a **Linux hosted queue** (either **arm64**
 or **amd64** — the Dockerfile auto-detects the architecture, so no edits are
 needed for either). No queue yet? Agents → cluster → **New Queue** → **Buildkite
 hosted** → Linux → pick the architecture.
 
-## Step 1 — Create the custom agent image
+### Step 1 — Create the custom agent image
 
 1. Global nav → **Agents** → select your cluster.
 2. **Agent Images** tab → **New Image**.
@@ -210,13 +201,13 @@ hosted** → Linux → pick the architecture.
 5. **Create Agent Image.** Buildkite builds it; the final `RUN flox --version`
    means a successful build already proves the install works.
 
-## Step 2 — Attach the image to the queue
+### Step 2 — Attach the image to the queue
 
 1. Agents → cluster → **Queues** → select your Linux hosted queue.
 2. **Base image** tab → **Agent image** dropdown → select **flox-agent**.
 3. **Save settings.**
 
-## Step 3 — Create the pipeline
+### Step 3 — Create the pipeline
 
 1. Global nav → **Pipelines** → **New Pipeline**.
 2. **Repository:** `https://github.com/jbayer/flox-buildkite` (authorize GitHub
@@ -227,7 +218,7 @@ hosted** → Linux → pick the architecture.
    `.buildkite/pipeline.yml`.
 5. Create Pipeline.
 
-## Step 4 — Run the first build (the acceptance test)
+### Step 4 — Run the first build (the acceptance test)
 
 Click **New Build** → Create Build on `main`, then check:
 
@@ -253,7 +244,7 @@ changing `SEED_PACKAGES` can't break the test.
 > ⚠️ The Dockerfile carries the `/opt/nix-seed` stash, so if you enabled caching
 > after a first attempt, **rebuild the `flox-agent` image** before this build.
 
-## Step 5 — Observe warm vs cold (don't expect every build to be warm)
+### Step 5 — Observe warm vs cold (don't expect every build to be warm)
 
 Run a few builds and watch the `Mounted cache on /nix (size …)` line and
 `ensure-nix.sh`'s warm/cold message:
@@ -268,7 +259,7 @@ durable* above). Consecutive builds often land on different agent instances and
 so don't share the volume. Warm-hit rate climbs as the pipeline runs more often;
 the seed keeps every cold mount working in the meantime.
 
-## Using Flox in real pipelines
+### Using Flox in real pipelines
 
 Run any command inside the environment with:
 
@@ -279,19 +270,75 @@ steps:
 
 …or activate once for every step via an agent `environment` hook.
 
-## Caveats (hosted agents)
+## Caveats
 
-These all concern the Buildkite *hosted* Linux flow above — the `/nix` cache
-volume, the seed pattern, and the custom agent image.
+These concern the **Linux** hosted flow above — the `/nix` cache volume, the
+seed pattern, and the agent image. (macOS differs; see below.)
 
 - A cache volume on `/nix` conflicts with baking Flox into the image — see
-  *Caching `/nix`* above. Use the seed pattern, not a plain volume.
+  *The seed pattern* above. Use the seed pattern, not a plain volume.
 - Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching
   as an optimization, never a dependency. Cold builds still work (re-download).
 - One cache volume per step.
 - Pin `FLOX_VERSION` in the Dockerfile for reproducible agent images.
 - If the validate step prints `NO: /nix not writable`, that's the one thing to
   tune in the Dockerfile for your queue's job user.
+
+## macOS hosted agents
+
+Buildkite's **macOS** hosted agents work differently from Linux, so Flox is set
+up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
+`.buildkite/lib/macos-install-flox.sh`. This flow is verified working on the
+built-in `macos-medium` queue. Two constraints drive the approach:
+
+- **No custom agent images.** Unlike Linux, you can't bake Flox into the base
+  image, so Flox is installed **per build** from its macOS `.pkg`. That install
+  is the unavoidable cost here — the Linux Phase 1 (bake into the image) doesn't
+  exist on macOS.
+- **`/nix` is a system APFS volume with a daemon.** macOS Nix is multi-user
+  only, so you can't bind-mount a cache volume over `/nix` as on Linux. Warmth,
+  when you need it, comes from a Nix **binary cache / substituter**, not from
+  caching the `/nix` mount.
+
+### Wiring it to a Mac
+
+The link to a macOS VM is the step's queue tag. `pipeline.macos.yml` targets
+**`macos-medium`**, a built-in Buildkite hosted macOS queue, so it routes to a
+real queue out of the box (swap it for a larger shape like `macos-large` if you
+need more resources). To run it, point a pipeline's **Steps** at the file:
+
+```yaml
+steps:
+  - command: buildkite-agent pipeline upload .buildkite/pipeline.macos.yml
+```
+
+The `pipeline upload` runs on whatever queue handles the build's first step
+(any queue — it only parses YAML); the install/activate step then dispatches to
+`macos-medium` via its `agents: { queue: "macos-medium" }` tag. If the build
+stalls at the upload step, the pipeline's default queue has no agents — set that
+default to `macos-medium` too, or let an existing queue handle the upload.
+
+What the example pipeline does:
+
+1. **Checks for passwordless sudo** and fails fast if it's missing. The `.pkg`
+   creates the `/nix` APFS volume, the `nix-daemon`, and `nixbld` users — all of
+   which need root. `macos-medium` grants it; the `sudo -n true` probe stays as
+   a guard so a queue that doesn't fails with a clear message instead of midway.
+2. **Installs the pinned `.pkg`**, caching the download on a best-effort cache
+   volume so re-installs skip it:
+   `sudo installer -pkg flox-$FLOX_VERSION.aarch64-darwin.pkg -target /`.
+3. **Puts `flox` on `PATH`** and runs the same sentinel as the other queues:
+   `flox activate -- hello`. flox is self-contained, so no Nix daemon profile
+   needs sourcing.
+
+For the activate to work on macOS, the repo env must list `aarch64-darwin` in
+`.flox/env/manifest.toml` `[options] systems` (added) with a regenerated
+lockfile that includes it.
+
+The honest trade-off vs Linux: macOS loses image baking, so Flox can't be made
+install-free there — only install-fast (cache the `.pkg`) and closure-warm. To
+make cold builds genuinely fast, point Flox/Nix at a local file-based cache kept
+on a cache volume, and/or a remote S3-compatible binary cache near the runners.
 
 ---
 
@@ -350,58 +397,21 @@ docker compose exec agent du -sh /nix
 
 ---
 
-# macOS hosted agents
+# Repo layout
 
-Buildkite's **macOS** hosted agents work differently from Linux, so Flox is set
-up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
-`.buildkite/lib/macos-install-flox.sh`. This flow is verified working on the
-built-in `macos-medium` queue. Two constraints drive the approach:
-
-- **No custom agent images.** Unlike Linux, you can't bake Flox into the base
-  image, so Flox is installed **per build** from its macOS `.pkg`. That install
-  is the unavoidable cost here — the Linux Phase 1 (bake into the image) doesn't
-  exist on macOS.
-- **`/nix` is a system APFS volume with a daemon.** macOS Nix is multi-user
-  only, so you can't bind-mount a cache volume over `/nix` as on Linux. Warmth,
-  when you need it, comes from a Nix **binary cache / substituter**, not from
-  caching the `/nix` mount.
-
-### Wiring it to a Mac
-
-The link to a macOS VM is the step's queue tag. `pipeline.macos.yml` targets
-**`macos-medium`**, a built-in Buildkite hosted macOS queue, so it routes to a
-real queue out of the box (swap it for a larger shape like `macos-large` if you
-need more resources). To run it, point a pipeline's **Steps** at the file:
-
-```yaml
-steps:
-  - command: buildkite-agent pipeline upload .buildkite/pipeline.macos.yml
 ```
-
-The `pipeline upload` runs on whatever queue handles the build's first step
-(any queue — it only parses YAML); the install/activate step then dispatches to
-`macos-medium` via its `agents: { queue: "macos-medium" }` tag. If the build
-stalls at the upload step, the pipeline's default queue has no agents — set that
-default to `macos-medium` too, or let an existing queue handle the upload.
-
-What the example pipeline does:
-
-1. **Checks for passwordless sudo** and fails fast if it's missing. The `.pkg`
-   creates the `/nix` APFS volume, the `nix-daemon`, and `nixbld` users — all of
-   which need root. `macos-medium` grants it; the `sudo -n true` probe stays as
-   a guard so a queue that doesn't fails with a clear message instead of midway.
-2. **Installs the pinned `.pkg`**, caching the download on a best-effort cache
-   volume so re-installs skip it:
-   `sudo installer -pkg flox-$FLOX_VERSION.aarch64-darwin.pkg -target /`.
-3. **Puts `flox` on `PATH`** and runs the same sentinel as the other queues:
-   `flox activate -- hello`. flox is self-contained, so no Nix daemon profile
-   needs sourcing.
-
-For the activate to work on macOS, the repo env must list `aarch64-darwin` in
-`.flox/env/manifest.toml` `[options] systems` (added) with a regenerated
-lockfile that includes it.
-
-The honest trade-off vs Linux: macOS loses image baking, so Flox can't be made
-install-free there — only install-fast (cache the `.pkg`) and closure-warm. To
-make cold builds genuinely fast, point Flox/Nix at a local file-based cache kept
-on a cache volume, and/or a remote S3-compatible binary cache near the runners.
+.buildkite/
+  agent-image/Dockerfile      hosted Linux agent image: Flox + SEED_PACKAGES + /opt/nix-seed
+  pipeline.yml                hosted Linux steps: validate + activate, with the /nix cache volume
+  pipeline.self-hosted.yml    steps for the self-hosted queue (warm-/nix check)
+  pipeline.macos.yml          steps for a macOS hosted queue (per-build .pkg install)
+  lib/ensure-nix.sh           seeds the /nix cache volume from /opt/nix-seed when cold
+  lib/macos-install-flox.sh   installs Flox from the macOS .pkg, then activates the env
+  upload.yml                  the one-line pipeline-upload step for Buildkite settings
+self-hosted/                  run a self-hosted agent locally (reliably warm /nix)
+  Dockerfile                  buildkite-agent + Flox
+  docker-compose.yml          agent + persistent /nix named volume
+  .env.example                where the agent token goes
+.flox/                        a small Flox environment whose `hello` package is the
+                              CI smoke-test sentinel (single source of truth)
+```
