@@ -34,13 +34,25 @@ fi
 echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root)"
 sudo installer -pkg "$PKG" -target /
 
-echo "--- load the daemon env into this non-interactive shell"
-# Multi-user Nix exposes its daemon + store via this profile script.
-source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-# The .pkg installs the flox binary under /usr/local/bin; ensure it's on PATH.
+echo "--- put flox on PATH and load any Nix daemon profile that exists"
+# The .pkg installs the flox binary under /usr/local/bin.
 export PATH="/usr/local/bin:$PATH"
+# flox is self-contained, but if the installer dropped a Nix daemon profile,
+# source it. Flox's installer may NOT create the classic nix-daemon.sh path, so
+# this is best-effort -- skip silently when absent (do NOT fail the build).
+for p in \
+  /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh \
+  /etc/profile.d/nix.sh \
+  /etc/profile.d/nix-daemon.sh; do
+  if [ -e "$p" ]; then echo "sourcing $p"; . "$p"; break; fi
+done
 # If a later flox call cannot reach the daemon, kickstart it:
 #   sudo launchctl kickstart -k system/org.nixos.nix-daemon
+if ! command -v flox >/dev/null 2>&1; then
+  echo "flox not on PATH after install; looked in /usr/local/bin:"
+  ls -l /usr/local/bin/flox 2>/dev/null || echo "  (no /usr/local/bin/flox)"
+  exit 1
+fi
 flox --version
 
 echo "--- activate the repo env and run the sentinel"
