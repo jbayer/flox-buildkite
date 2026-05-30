@@ -1,0 +1,17 @@
+# Region discovery for Buildkite HOSTED Linux agents.
+#
+# Buildkite hosted agents run in a US East Coast *private* cloud (not AWS/GCP/
+# Azure). This throwaway, informational pipeline prints a hosted Linux agent's
+# egress public IP, its ASN/org and geo, and probes cloud metadata endpoints
+# (which a private cloud does not answer), so you can see where a hosted Linux
+# job actually runs from. It installs nothing and changes nothing.
+#
+# Wire it up: set a pipeline's Steps to
+#   - command: buildkite-agent pipeline upload .buildkite/pipeline.region-discovery.yml
+
+steps:
+  - label: ":earth_americas: region discovery (hosted Linux)"
+    # linux-small is a built-in Buildkite hosted Linux queue. Swap it for your
+    # Linux hosted queue if different.
+    agents: { queue: "linux-small" }
+    command: bash .buildkite/lib/region-discovery.sh
