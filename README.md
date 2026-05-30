@@ -279,6 +279,20 @@ steps:
 
 …or activate once for every step via an agent `environment` hook.
 
+## Caveats (hosted agents)
+
+These all concern the Buildkite *hosted* Linux flow above — the `/nix` cache
+volume, the seed pattern, and the custom agent image.
+
+- A cache volume on `/nix` conflicts with baking Flox into the image — see
+  *Caching `/nix`* above. Use the seed pattern, not a plain volume.
+- Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching
+  as an optimization, never a dependency. Cold builds still work (re-download).
+- One cache volume per step.
+- Pin `FLOX_VERSION` in the Dockerfile for reproducible agent images.
+- If the validate step prints `NO: /nix not writable`, that's the one thing to
+  tune in the Dockerfile for your queue's job user.
+
 ---
 
 # Self-hosted agents (a reliably warm `/nix`)
@@ -333,17 +347,6 @@ docker compose exec agent du -sh /nix
 - **Self-hosted + persistent `/nix`:** you run the agent, but the warm cache is
   reliable and there's no per-build seed copy. Best when a large closure makes
   consistent warmth worth operating an agent.
-
-## Caveats
-
-- A cache volume on `/nix` conflicts with baking Flox into the image — see
-  *Caching `/nix`* above. Use the seed pattern, not a plain volume.
-- Cache volumes are **best-effort**, ~14-day retention — treat `/nix` caching
-  as an optimization, never a dependency. Cold builds still work (re-download).
-- One cache volume per step.
-- Pin `FLOX_VERSION` in the Dockerfile for reproducible agent images.
-- If the validate step prints `NO: /nix not writable`, that's the one thing to
-  tune in the Dockerfile for your queue's job user.
 
 ---
 
