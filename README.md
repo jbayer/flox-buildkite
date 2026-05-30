@@ -362,6 +362,24 @@ approach:
   when you need it, comes from a Nix **binary cache / substituter**, not from
   caching the `/nix` mount.
 
+### Wiring it to a Mac
+
+The link to a macOS VM is the step's queue tag. `pipeline.macos.yml` targets
+**`macos-medium`**, a built-in Buildkite hosted macOS queue, so it routes to a
+real queue out of the box (swap it for a larger shape like `macos-large` if you
+need more resources). To run it, point a pipeline's **Steps** at the file:
+
+```yaml
+steps:
+  - command: buildkite-agent pipeline upload .buildkite/pipeline.macos.yml
+```
+
+The `pipeline upload` runs on whatever queue handles the build's first step
+(any queue — it only parses YAML); the install/activate step then dispatches to
+`macos-medium` via its `agents: { queue: "macos-medium" }` tag. If the build
+stalls at the upload step, the pipeline's default queue has no agents — set that
+default to `macos-medium` too, or let an existing queue handle the upload.
+
 What the example pipeline does:
 
 1. **Checks for passwordless sudo** and fails fast if it's missing. The `.pkg`
