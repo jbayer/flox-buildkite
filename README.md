@@ -357,6 +357,121 @@ on a cache volume, and/or a remote S3-compatible binary cache near the runners.
 
 ---
 
+# Durable cache: an S3-compatible binary cache (Nix substituter)
+
+The `/nix` cache volume is best-effort and the agent image only bakes a *fixed*
+seed. Neither reliably holds **what a given build actually produced**. The
+durable layer that does is an **S3-compatible Nix binary cache** — a
+*substituter* — that every build reads from and writes back to.
+
+This works with **any S3-compatible object store**: AWS S3, CloudFlare R2,
+MinIO, Ceph RGW, Backblaze B2, and so on. You only supply a bucket, an endpoint
+URL, a region, and credentials. **This repo's example was tested against
+CloudFlare R2** (chosen for **zero egress fees** — a binary cache is read-heavy
+— and for sitting close to the hosted agents' egress region, `iad` /
+`us-east-1`), but nothing here is R2-specific; point it at your own store.
+
+It works because Flox shells out to its own bundled Nix, which reads
+`/etc/nix/nix.conf` — so an `extra-substituters` line there makes a cold
+`flox activate` **pull prebuilt paths from the cache** instead of from upstream.
+
+```
+S3 BINARY CACHE — the durable layer, read on cold builds, written on every build
+────────────────────────────────────────────────────────────────────────────
+   flox activate ──▶ path in /nix?  ──no──▶ S3 substituter? ──hit──▶ pull   ✅
+                                                  └─miss─▶ upstream (cold)  ⏳
+   each build ──▶ s3-cache-push.sh writes its env closure back to the cache ┘
+                  so the NEXT cold build finds it warm in the cache
+```
+
+## Two halves: read and write
+
+| Half | Script | What it does |
+| --- | --- | --- |
+| **Read** | `.buildkite/lib/s3-cache-configure.sh` | Idempotently adds the cache `extra-substituters` + trusted public key to `/etc/nix/nix.conf`. Inputs are **non-secret**, so you can bake them into the agent image instead (`agent-image/Dockerfile`, the `S3_CACHE_*` ARGs). |
+| **Write** | `.buildkite/lib/s3-cache-push.sh` | Signs and pushes the activated env's closure (`$FLOX_ENV`) — or explicit store paths — to the cache with `nix copy --to s3://…`. |
+
+`.buildkite/pipeline.s3-cache.yml` runs the whole round-trip in one step:
+**configure (read) → `flox activate` → push back (write) → read-proof**.
+
+## Configuration knobs
+
+Non-secret, set in the pipeline `env:` block (or the Dockerfile ARGs):
+
+| Var | Meaning | Example |
+| --- | --- | --- |
+| `S3_CACHE_BUCKET` | bucket name | `flox-binary-cache` |
+| `S3_CACHE_ENDPOINT` | full S3 endpoint URL | R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` · AWS: `https://s3.us-east-1.amazonaws.com` · MinIO: `https://minio.example.com:9000` |
+| `S3_CACHE_REGION` | region (default `auto`) | R2: `auto` · AWS/MinIO: a real region, e.g. `us-east-1` |
+| `S3_CACHE_PUBLIC_KEY` | the cache's trusted public key | `flox-binary-cache-1:base64=` |
+
+## One-time setup
+
+1. **Bucket + S3 credentials.** Create a bucket on your provider and an
+   **S3 access key** (Access Key ID + Secret Access Key) with read+write to it.
+   - *CloudFlare R2:* create an R2 **API token** with *Object Read & Write*
+     scoped to the bucket — it's S3-compatible and yields the key pair above;
+     the endpoint is `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`.
+   - *AWS S3:* an IAM access key with `s3:GetObject`/`PutObject`/`ListBucket`;
+     endpoint `https://s3.<region>.amazonaws.com`, region your bucket's region.
+   - *MinIO/Ceph:* an access/secret key pair; endpoint your server URL.
+2. **Signing keypair.** A cache must sign paths so other machines trust them:
+   ```bash
+   nix --extra-experimental-features nix-command key generate-secret \
+       --key-name flox-binary-cache-1 > secret.key
+   nix --extra-experimental-features nix-command key convert-secret-to-public \
+       < secret.key > public.key
+   ```
+   `public.key` is the non-secret `S3_CACHE_PUBLIC_KEY` (goes in nix.conf / the
+   pipeline `env:`). `secret.key`'s **text** is the secret `S3_CACHE_SIGNING_KEY`.
+
+## Wiring it on Buildkite
+
+Set these as **cluster secrets** (Agents → cluster → Secrets); they're fetched
+at runtime via `buildkite-agent secret get` and never baked into the image:
+
+| Secret | Value |
+| --- | --- |
+| `S3_CACHE_ACCESS_KEY_ID` / `S3_CACHE_SECRET_ACCESS_KEY` | the S3 access key pair |
+| `S3_CACHE_SIGNING_KEY` | the **text** of `secret.key` |
+
+The non-secret `S3_CACHE_BUCKET`, `S3_CACHE_ENDPOINT`, `S3_CACHE_REGION`,
+`S3_CACHE_PUBLIC_KEY` live in the pipeline `env:` block (swap them for yours).
+Point a pipeline's **Steps** at it:
+
+```yaml
+steps:
+  - command: buildkite-agent pipeline upload .buildkite/pipeline.s3-cache.yml
+```
+
+## Private vs public reads
+
+The setup above keeps the bucket **private**: reads go through `s3://` and every
+agent needs the access key in its environment. If you'd rather agents read
+**without credentials**, expose the bucket over a public HTTPS URL (R2's
+**r2.dev** domain, an AWS S3 website/CloudFront URL, a MinIO public bucket, …)
+and use it as a plain `https://` substituter — writes still use the
+authenticated `s3://` push. Store paths are content-addressed build artifacts,
+so a public-read cache is the norm (it's how `cache.nixos.org` works); the
+trade-off is the cache contents become world-readable.
+
+## Guard the signing key
+
+The S3 access key controls bucket access, but the **signing key** is the
+credential that matters most: anyone holding it can place *trusted* paths in
+your cache. Keep it only in Buildkite secrets (and a secure local copy), never
+in the image or the repo. `s3-cache-push.sh` writes it to a `0600` temp file and
+deletes it on exit.
+
+> Verified locally on this container against a real **CloudFlare R2** bucket
+> (the example values above): signed push, cold-store pull with signature
+> checking, and a `flox install` that fetched a package from the cache as the
+> *only* substituter. The write-back step pushes the `environment-develop`
+> closure so the next cold build can substitute it. The same code path works
+> against any other S3-compatible store by changing the endpoint/region.
+
+---
+
 # Self-hosted agents (a reliably warm `/nix`)
 
 Everything above is for Buildkite *hosted* agents, where the `/nix` cache
@@ -421,7 +536,11 @@ docker compose exec agent du -sh /nix
   pipeline.self-hosted.yml        steps for the self-hosted queue (warm-/nix check)
   pipeline.macos.yml              steps for a macOS hosted queue (per-build .pkg install)
   pipeline.region-discovery.yml   informational: print a hosted Linux agent's egress IP + region
+  pipeline.s3-cache.yml           S3 binary-cache round-trip: configure read + activate + push back + read-proof
   lib/ensure-nix.sh               seeds the /nix cache volume from /opt/nix-seed when cold
+  lib/s3-cache-configure.sh       READ path: add the S3 cache substituter + trusted key to /etc/nix/nix.conf
+  lib/s3-cache-push.sh            WRITE path: sign + push the env closure (or given paths) to the S3 cache
+  lib/s3-cache-read-proof.sh      deterministic read check: pull the env closure back from the cache, sigs required
   lib/macos-install-flox.sh       installs Flox from the macOS .pkg, then activates the env
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
