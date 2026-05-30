@@ -4,11 +4,10 @@
 #
 # Why a script file instead of an inline `command: |` block: on the macOS hosted
 # agent, shell state does NOT carry across the lines of an inline command -- a
-# variable set on one line is empty on the next, and a sourced profile doesn't
-# stick. (That left `curl -o "$PKG"` with a blank argument.) Running everything
-# as one `bash .buildkite/lib/macos-install-flox.sh` invocation makes it a single
-# real shell, so the PKG variable, the sourced nix-daemon profile, and
-# `set -euo pipefail` all behave normally.
+# variable set on one line is empty on the next. (That left `curl -o "$PKG"` with
+# a blank argument.) Running everything as one
+# `bash .buildkite/lib/macos-install-flox.sh` invocation makes it a single real
+# shell, so the PKG variable and `set -euo pipefail` behave normally.
 set -euo pipefail
 
 : "${FLOX_VERSION:?set FLOX_VERSION in the pipeline env}"
@@ -34,20 +33,10 @@ fi
 echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root)"
 sudo installer -pkg "$PKG" -target /
 
-echo "--- put flox on PATH and load any Nix daemon profile that exists"
-# The .pkg installs the flox binary under /usr/local/bin.
+echo "--- put flox on PATH"
+# The .pkg installs the flox binary under /usr/local/bin. flox is self-contained:
+# it does not need a sourced Nix daemon profile (verified on macos-medium).
 export PATH="/usr/local/bin:$PATH"
-# flox is self-contained, but if the installer dropped a Nix daemon profile,
-# source it. Flox's installer may NOT create the classic nix-daemon.sh path, so
-# this is best-effort -- skip silently when absent (do NOT fail the build).
-for p in \
-  /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh \
-  /etc/profile.d/nix.sh \
-  /etc/profile.d/nix-daemon.sh; do
-  if [ -e "$p" ]; then echo "sourcing $p"; . "$p"; break; fi
-done
-# If a later flox call cannot reach the daemon, kickstart it:
-#   sudo launchctl kickstart -k system/org.nixos.nix-daemon
 if ! command -v flox >/dev/null 2>&1; then
   echo "flox not on PATH after install; looked in /usr/local/bin:"
   ls -l /usr/local/bin/flox 2>/dev/null || echo "  (no /usr/local/bin/flox)"

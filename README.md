@@ -351,7 +351,8 @@ docker compose exec agent du -sh /nix
 
 Buildkite's **macOS** hosted agents work differently from Linux, so Flox is set
 up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
-`.buildkite/lib/macos-install-flox.sh`. Two constraints drive the approach:
+`.buildkite/lib/macos-install-flox.sh`. This flow is verified working on the
+built-in `macos-medium` queue. Two constraints drive the approach:
 
 - **No custom agent images.** Unlike Linux, you can't bake Flox into the base
   image, so Flox is installed **per build** from its macOS `.pkg`. That install
@@ -384,13 +385,14 @@ What the example pipeline does:
 
 1. **Checks for passwordless sudo** and fails fast if it's missing. The `.pkg`
    creates the `/nix` APFS volume, the `nix-daemon`, and `nixbld` users — all of
-   which need root. Validate this on your queue first (`sudo -n true`); it's the
-   one thing that can block the whole approach.
+   which need root. `macos-medium` grants it; the `sudo -n true` probe stays as
+   a guard so a queue that doesn't fails with a clear message instead of midway.
 2. **Installs the pinned `.pkg`**, caching the download on a best-effort cache
    volume so re-installs skip it:
    `sudo installer -pkg flox-$FLOX_VERSION.aarch64-darwin.pkg -target /`.
-3. **Sources the daemon profile** (non-interactive shells don't) and runs the
-   same sentinel as the other queues: `flox activate -- hello`.
+3. **Puts `flox` on `PATH`** and runs the same sentinel as the other queues:
+   `flox activate -- hello`. flox is self-contained, so no Nix daemon profile
+   needs sourcing.
 
 For the activate to work on macOS, the repo env must list `aarch64-darwin` in
 `.flox/env/manifest.toml` `[options] systems` (added) with a regenerated
