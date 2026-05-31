@@ -24,7 +24,7 @@ anytime; it's an orthogonal integration that layers on either tier.
 A green build on any Linux hosted queue, no custom image. You already have a
 `.flox/` environment in your repo (that's why you're here).
 
-1. **Copy** `.buildkite/lib/install-flox.sh` into your repo.
+1. **Copy** `.buildkite/lib/linux-install-flox.sh` into your repo.
 2. **Add a pipeline file** (e.g. `.buildkite/pipeline.yml`):
    ```yaml
    env:
@@ -32,7 +32,7 @@ A green build on any Linux hosted queue, no custom image. You already have a
      # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
    steps:
      - command: |
-         bash .buildkite/lib/install-flox.sh    # installs Flox if not already present
+         bash .buildkite/lib/linux-install-flox.sh    # installs Flox if not already present
          flox activate -- <your build command>  # e.g. make test
    ```
    (A copy-ready version is `.buildkite/examples/pipeline.minimal.yml`.)
@@ -45,7 +45,7 @@ See [Automation](docs/automation.md) (`scripts/bk-setup.sh`).
 
 ## Make it faster (Tier 1)
 
-`install-flox.sh` is a **no-op when Flox is already present**, so Tier 1 is purely
+`linux-install-flox.sh` is a **no-op when Flox is already present**, so Tier 1 is purely
 additive — it just makes Flox *already there*:
 
 - **Custom agent image** — bake Flox (and heavy runtimes) into the agent so every
@@ -74,7 +74,7 @@ Compose your steps from these. The only one you *need* is **activate**.
 ```yaml
 env: { NIX_REMOTE: "auto" }   # add FLOX_VERSION: "1.12.1" to pin (default: latest)
 steps:
-  - command: bash .buildkite/lib/install-flox.sh
+  - command: bash .buildkite/lib/linux-install-flox.sh
 ```
 
 **2 — Activate + run** (the essential pattern):
@@ -110,7 +110,7 @@ steps:
 
 | You want | Copy |
 | --- | --- |
-| Tier 0 (install per build) | `.buildkite/lib/install-flox.sh` |
+| Tier 0 (install per build) | `.buildkite/lib/linux-install-flox.sh` |
 | Tier 1 — custom image | `.buildkite/agent-image/Dockerfile` |
 | Tier 1 — `/nix` cache volume | `.buildkite/lib/ensure-nix.sh` + the `cache:` block in `pipeline.yml` |
 | Binary cache | `.buildkite/lib/s3-cache-*.sh` |
@@ -150,7 +150,7 @@ Deep-dives in **[docs/](docs/README.md)**: [caching model](docs/caching-model.md
   pipeline.macos.yml        macOS hosted queue (zstd fast install + optional cache)
   agent-image/Dockerfile    Tier-1 custom agent image: Flox + SEED_PACKAGES + /opt/nix-seed
   lib/
-    install-flox.sh         Tier 0: install Flox per build on a generic Linux agent
+    linux-install-flox.sh   Tier 0: install Flox per build on a generic Linux agent
     ensure-nix.sh           seed the /nix cache volume from /opt/nix-seed when cold
     s3-cache-*.sh           binary cache: load-secrets, configure (read), push (write), read-proof
     macos-*.sh              macOS install + S3 helpers (fast install, daemon-auth)
