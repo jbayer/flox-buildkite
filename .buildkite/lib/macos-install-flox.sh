@@ -14,34 +14,21 @@ set -euo pipefail
 
 PKG="/tmp/flox-cache/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
 URL="https://downloads.flox.dev/by-env/stable/osx/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
+# Fast-install archive (zstd), keyed by version, on the persistent cache volume.
+FAST_ARCHIVE="/tmp/flox-cache/nix-store-${FLOX_VERSION}.tar.zst"
 
-# The .pkg installs flox under /usr/local/bin; put it on PATH up front so the
-# warm-agent check below can see an already-installed flox.
+# The .pkg installs flox under /usr/local/bin.
 export PATH="/usr/local/bin:$PATH"
 
-# WARM-AGENT FAST PATH: the ~40s cost here is entirely `installer -pkg` (it
-# creates the /nix APFS volume, extracts the Nix store, and sets up the daemon +
-# nixbld users). If this agent reuses its VM across builds, all of that already
-# exists -- so skip the reinstall when flox is present AND the nix-daemon socket
-# is live. Falls through to a full install if anything is missing (cold VM), so
-# it's always safe. (Whether this ever triggers tells us if the macOS agent's
-# /nix persists -- a COLD log every build means it's ephemeral.)
-DAEMON_SOCK="/nix/var/nix/daemon-socket/socket"
-installed_ver="$(flox --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-if command -v flox >/dev/null 2>&1 && [ -S "$DAEMON_SOCK" ] && [ "$installed_ver" = "$FLOX_VERSION" ]; then
-  # Skip ONLY when the pinned version is already there -- so bumping FLOX_VERSION
-  # still forces a reinstall on a warm agent instead of silently keeping the old one.
-  echo "--- WARM agent: flox $installed_ver + nix-daemon already present; skipping the ~40s .pkg install"
-  flox --version
-else
-  echo "--- COLD agent: installing Flox from the .pkg"
+# The normal multi-user .pkg install (~42s; the floor without the fast path).
+pkg_install() {
+  echo "--- installing Flox from the .pkg (multi-user)"
   echo "--- the .pkg install needs root -- check passwordless sudo first"
   if ! sudo -n true 2>/dev/null; then
     echo "NO passwordless sudo on this queue. The Flox .pkg cannot create the"
     echo "/nix APFS volume + nix-daemon without it. See README (macOS section)."
     exit 1
   fi
-
   if [ -f "$PKG" ]; then
     echo "--- reuse cached .pkg ($PKG)"
   else
@@ -49,11 +36,8 @@ else
     mkdir -p "$(dirname "$PKG")"
     curl -fsSL -o "$PKG" "$URL"
   fi
-
   echo "--- install Flox (creates /nix APFS volume + nix-daemon; needs root) [timed]"
   time sudo installer -pkg "$PKG" -target /
-
-  # flox is self-contained: it does not need a sourced Nix daemon profile.
   export PATH="/usr/local/bin:$PATH"
   if ! command -v flox >/dev/null 2>&1; then
     echo "flox not on PATH after install; looked in /usr/local/bin:"
@@ -61,6 +45,33 @@ else
     exit 1
   fi
   flox --version
+}
+
+# EXPERIMENTAL fast install (opt-in FAST_INSTALL=1). Restores /nix from a zstd
+# archive (~1s) instead of the .pkg's ~25s xz extraction, running Nix SINGLE-USER
+# (no daemon) like the Linux flow. When SINGLE_USER_NIX is set, the S3 read uses
+# the job's own creds, so the macOS daemon-auth step below is skipped.
+SINGLE_USER_NIX=""
+if [ "${FAST_INSTALL:-}" = "1" ] && [ -f "$FAST_ARCHIVE" ]; then
+  echo "--- FAST install: restoring single-user Nix from $FAST_ARCHIVE"
+  if bash .buildkite/lib/macos-fast-install.sh "$FAST_ARCHIVE"; then
+    SINGLE_USER_NIX=1
+    export NIX_REMOTE=auto
+    export PATH="/usr/local/bin:$PATH"
+    echo "--- FAST install OK (single-user Nix; no daemon)"
+  else
+    # Experimental path: fail fast with clear diagnostics rather than fall back
+    # over a half-created /nix. Normal builds (no FAST_INSTALL) are unaffected.
+    echo "!!! FAST install failed -- see [fast] lines above. Not falling back." >&2
+    exit 1
+  fi
+else
+  pkg_install
+  if [ "${FAST_INSTALL:-}" = "1" ]; then
+    echo "--- bootstrap: caching /nix as zstd for future fast installs"
+    bash .buildkite/lib/macos-fast-install.sh --bootstrap "$FAST_ARCHIVE" \
+      || echo "WARNING: fast-install bootstrap archive failed (non-fatal)"
+  fi
 fi
 
 # One-time MEASUREMENT (opt-in via MEASURE_NIX_RESTORE=1): how fast could a
@@ -116,8 +127,14 @@ source .buildkite/lib/s3-cache-load-secrets.sh
 # Read path: substituter -> /etc/nix/nix.conf, then give the daemon creds + reload.
 bash .buildkite/lib/s3-cache-configure.sh \
   || echo "WARNING: s3-cache-configure failed; reads may fall back to upstream"
-bash .buildkite/lib/macos-s3-daemon-auth.sh \
-  || echo "WARNING: macos-s3-daemon-auth failed; reads may fall back to upstream"
+# Multi-user only: the root daemon needs the S3 creds + a reload. Single-user
+# (fast install) uses the job's own creds directly, like Linux -- skip it.
+if [ -n "$SINGLE_USER_NIX" ]; then
+  echo "--- single-user Nix: skipping macOS daemon-auth (job creds used directly)"
+else
+  bash .buildkite/lib/macos-s3-daemon-auth.sh \
+    || echo "WARNING: macos-s3-daemon-auth failed; reads may fall back to upstream"
+fi
 
 echo "--- activate the repo env and run the sentinel"
 # Requires aarch64-darwin in .flox/env/manifest.toml [options] systems.
