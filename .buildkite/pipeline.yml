@@ -37,6 +37,9 @@ cache:
 #     S3_CACHE_REGION: "auto"
 #     S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
 
+env:
+  FLOX_SHELL: "bash"   # CI has no tty -- silences flox's shell-detect warning
+
 steps:
   - label: ":mag: validate agent + flox"
     command: |

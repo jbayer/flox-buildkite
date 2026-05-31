@@ -29,6 +29,7 @@ A green build on any Linux hosted queue, no custom image. You already have a
    ```yaml
    env:
      NIX_REMOTE: "auto"            # single-user Nix (no daemon)
+     FLOX_SHELL: "bash"            # CI has no tty -- silences flox's shell-detect warning
      # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
    steps:
      - command: |
@@ -72,7 +73,7 @@ Compose your steps from these. The only one you *need* is **activate**.
 
 **1 — Install Flox** (Tier 0; a no-op under a custom image):
 ```yaml
-env: { NIX_REMOTE: "auto" }   # add FLOX_VERSION: "1.12.1" to pin (default: latest)
+env: { NIX_REMOTE: "auto", FLOX_SHELL: "bash" }   # add FLOX_VERSION to pin (default: latest)
 steps:
   - command: bash .buildkite/lib/linux-install-flox.sh
 ```
@@ -82,6 +83,8 @@ steps:
 steps:
   - command: flox activate -- make test      # any command
 ```
+> Set `FLOX_SHELL: "bash"` in the `env:` of any step that runs `flox activate` —
+> CI has no tty, so flox otherwise logs `Failed to detect shell … Defaulting to bash`.
 
 **3 — Read from a binary cache** (optional):
 ```yaml

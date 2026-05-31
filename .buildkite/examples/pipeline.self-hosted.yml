@@ -36,6 +36,7 @@ env:
   S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
   S3_CACHE_REGION: "auto"
   S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
+  FLOX_SHELL: "bash"   # CI has no tty -- silences flox's shell-detect warning
 
 steps:
   - label: ":flox: activate (self-hosted, warm-check + S3 miss fallback)"

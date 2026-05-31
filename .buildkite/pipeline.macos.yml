@@ -20,6 +20,7 @@
 env:
   # Pin the Flox version for reproducible installs. Bump deliberately.
   FLOX_VERSION: "1.12.1"
+  FLOX_SHELL: "bash"   # CI has no tty -- silences flox's shell-detect warning
   # OPTIONAL binary cache. macOS has no /nix cache volume, so this is the main way
   # to warm cold builds. Uncomment + fill to enable (or set in Buildkite pipeline
   # env settings), and add the cluster secrets. Left commented = cache disabled.

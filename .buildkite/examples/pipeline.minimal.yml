@@ -7,6 +7,7 @@
 # Requires a `.flox/` environment in your repo.
 env:
   NIX_REMOTE: "auto"          # single-user Nix (operate on the store directly)
+  FLOX_SHELL: "bash"          # CI has no tty; tell flox the shell (silences a warning)
   # FLOX_VERSION: "1.12.1"    # optional: pin a version (default: latest stable)
 steps:
   - label: ":flox: activate"
