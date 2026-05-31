@@ -63,6 +63,14 @@ else
   flox --version
 fi
 
+# One-time MEASUREMENT (opt-in via MEASURE_NIX_RESTORE=1): how fast could a
+# cache-and-restore installer be vs the ~42s `installer -pkg`? Non-fatal; only
+# runs when explicitly requested, so normal builds are untouched.
+if [ -n "${MEASURE_NIX_RESTORE:-}" ]; then
+  bash .buildkite/lib/macos-measure-nix-restore.sh \
+    || echo "WARNING: nix-restore measurement failed (non-fatal)"
+fi
+
 # --- S3 binary cache (optional; layer-2 read + write-back) ----------------------
 # macOS is multi-user Nix, so reads go through the root daemon -- see
 # macos-s3-daemon-auth.sh. The read setup is made NON-FATAL: a macOS quirk falls
