@@ -83,8 +83,10 @@ steps:
 steps:
   - command: flox activate -- make test      # any command
 ```
-> Set `FLOX_SHELL: "bash"` in the `env:` of any step that runs `flox activate` —
-> CI has no tty, so flox otherwise logs `Failed to detect shell … Defaulting to bash`.
+> CI has no tty, so `flox activate` logs `Failed to detect shell … Defaulting to
+> bash`. Silence it by telling flox the shell — either in `env:` (`FLOX_SHELL:
+> "bash"`, applies to every step) or **inline** on the command, which survives
+> copy-pasting just the step: `FLOX_SHELL=bash flox activate -- make test`.
 
 **3 — Read from a binary cache** (optional):
 ```yaml
