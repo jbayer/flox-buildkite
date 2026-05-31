@@ -44,6 +44,9 @@ env:
   S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
   S3_CACHE_REGION: "auto"
   S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+  # This pipeline demonstrates the WRITE-BACK round-trip, so opt in (default is
+  # read-only). The read-proof below depends on the push having happened.
+  S3_CACHE_PUSH: "1"
 
 steps:
   - label: ":floppy_disk: flox + S3 cache round-trip (read, activate, write back)"
