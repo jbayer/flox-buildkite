@@ -6,8 +6,8 @@
 # pipeline's Steps at it (Buildkite's default already runs .buildkite/pipeline.yml).
 # Requires a `.flox/` environment in your repo.
 env:
-  FLOX_VERSION: "1.12.1"      # pin for reproducible installs
   NIX_REMOTE: "auto"          # single-user Nix (operate on the store directly)
+  # FLOX_VERSION: "1.12.1"    # optional: pin a version (default: latest stable)
 steps:
   - label: ":flox: activate"
     command: |

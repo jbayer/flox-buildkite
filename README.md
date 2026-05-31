@@ -28,8 +28,8 @@ A green build on any Linux hosted queue, no custom image. You already have a
 2. **Add a pipeline file** (e.g. `.buildkite/pipeline.yml`):
    ```yaml
    env:
-     FLOX_VERSION: "1.12.1"
      NIX_REMOTE: "auto"            # single-user Nix (no daemon)
+     # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
    steps:
      - command: |
          bash .buildkite/lib/install-flox.sh    # installs Flox if not already present
@@ -72,7 +72,7 @@ Compose your steps from these. The only one you *need* is **activate**.
 
 **1 — Install Flox** (Tier 0; a no-op under a custom image):
 ```yaml
-env: { FLOX_VERSION: "1.12.1", NIX_REMOTE: "auto" }
+env: { NIX_REMOTE: "auto" }   # add FLOX_VERSION: "1.12.1" to pin (default: latest)
 steps:
   - command: bash .buildkite/lib/install-flox.sh
 ```

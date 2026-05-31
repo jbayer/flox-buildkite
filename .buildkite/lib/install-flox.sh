@@ -7,10 +7,10 @@
 # cache volume already provides it) this is a fast no-op. So it's safe to leave
 # at the top of every step even after you move to a custom image (Tier 1).
 #
-# Needs root (hosted Linux agents run as root) or passwordless sudo. Pin
-# FLOX_VERSION in the pipeline env for reproducibility.
+# Needs root (hosted Linux agents run as root) or passwordless sudo. Installs the
+# LATEST stable Flox by default; set FLOX_VERSION in the pipeline env to pin a
+# specific version (recommended for reproducibility).
 set -euo pipefail
-: "${FLOX_VERSION:=1.12.1}"
 
 if command -v flox >/dev/null 2>&1; then
   echo "--- Flox already installed ($(flox --version)); skipping install"
@@ -19,9 +19,14 @@ fi
 
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo"
 arch="$(uname -m)"   # x86_64 / aarch64 -- matches the .deb naming
-url="https://downloads.flox.dev/by-env/stable/deb/flox-${FLOX_VERSION}.${arch}-linux.deb"
-
-echo "--- installing Flox ${FLOX_VERSION} (.deb bundles Nix) [timed]"
+base="https://downloads.flox.dev/by-env/stable/deb"
+if [ -n "${FLOX_VERSION:-}" ]; then
+  url="${base}/flox-${FLOX_VERSION}.${arch}-linux.deb"   # pinned
+  echo "--- installing Flox ${FLOX_VERSION} (.deb bundles Nix) [timed]"
+else
+  url="${base}/flox.${arch}-linux.deb"                   # latest stable
+  echo "--- installing latest Flox (set FLOX_VERSION to pin) (.deb bundles Nix) [timed]"
+fi
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "$url" -o "$tmp/flox.deb"
 $SUDO apt-get update -qq
