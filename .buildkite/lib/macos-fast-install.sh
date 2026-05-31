@@ -50,7 +50,16 @@ fast_install() {
       printf 'nix\tSystem/Volumes/Data/nix\n' | sudo tee -a /etc/synthetic.conf >/dev/null \
         || { echo "[fast] writing /etc/synthetic.conf failed" >&2; return 1; }
     fi
-    sudo "$APFS_UTIL" -t || { echo "[fast] apfs.util -t failed" >&2; return 1; }
+    echo "--- [fast] apfs.util present? $([ -x "$APFS_UTIL" ] && echo yes || echo NO)"
+    echo "--- [fast] /etc/synthetic.conf:"; sudo cat /etc/synthetic.conf 2>&1 | sed 's/^/      /'
+    echo "--- [fast] running apfs.util -t (capturing output + rc):"
+    sudo "$APFS_UTIL" -t 2>&1 | sed 's/^/      apfs.util: /'; rc=${PIPESTATUS[0]}
+    echo "--- [fast] apfs.util -t rc=$rc; /nix now: $(ls -ld /nix 2>&1)"
+    # Diagnostic: the real installer's volume-creation scripts (to crib a proper
+    # APFS-volume path if the firmlink route needs a reboot here).
+    echo "--- [fast] nix installer scripts available to crib volume creation:"
+    ls -la /usr/local/share/nix/scripts/ 2>&1 | sed 's/^/      /' | head -20
+    if [ "$rc" != 0 ]; then echo "[fast] apfs.util -t failed (rc=$rc)" >&2; return 1; fi
   fi
   # Give the firmlink a moment to appear.
   for _ in 1 2 3 4 5; do [ -d /nix ] && break; sleep 1; done
