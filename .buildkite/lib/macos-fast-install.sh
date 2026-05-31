@@ -43,24 +43,32 @@ fast_install() {
   local archive="$1"
   local me grp; me="$(id -un)"; grp="$(id -gn)"
 
-  echo "+++ [fast] create /nix (synthetic firmlink to the writable Data volume)"
-  if [ ! -e /nix ]; then
-    sudo mkdir -p "$NIX_DATA_DIR" || { echo "[fast] mkdir $NIX_DATA_DIR failed" >&2; return 1; }
-    if ! grep -qE '^nix[[:space:]]' /etc/synthetic.conf 2>/dev/null; then
-      printf 'nix\tSystem/Volumes/Data/nix\n' | sudo tee -a /etc/synthetic.conf >/dev/null \
-        || { echo "[fast] writing /etc/synthetic.conf failed" >&2; return 1; }
-    fi
-    echo "--- [fast] apfs.util present? $([ -x "$APFS_UTIL" ] && echo yes || echo NO)"
-    echo "--- [fast] /etc/synthetic.conf:"; sudo cat /etc/synthetic.conf 2>&1 | sed 's/^/      /'
-    echo "--- [fast] running apfs.util -t (capturing output + rc):"
-    sudo "$APFS_UTIL" -t 2>&1 | sed 's/^/      apfs.util: /'; rc=${PIPESTATUS[0]}
-    echo "--- [fast] apfs.util -t rc=$rc; /nix now: $(ls -ld /nix 2>&1)"
-    # Diagnostic: the real installer's volume-creation scripts (to crib a proper
-    # APFS-volume path if the firmlink route needs a reboot here).
-    echo "--- [fast] nix installer scripts available to crib volume creation:"
-    ls -la /usr/local/share/nix/scripts/ 2>&1 | sed 's/^/      /' | head -20
-    if [ "$rc" != 0 ]; then echo "[fast] apfs.util -t failed (rc=$rc)" >&2; return 1; fi
+  # Nix rejects a symlinked store (build 18: a `nix<TAB>target` synthetic.conf
+  # entry makes /nix a symlink). So create a REAL APFS volume mounted at /nix:
+  # an empty synthetic mountpoint + `diskutil apfs addVolume`.
+  echo "+++ [fast] create /nix as a dedicated APFS volume (real dir; nix needs that)"
+  if [ ! -d /nix ] || [ -L /nix ]; then
+    [ -L /nix ] && sudo rm -f /nix                                   # drop stale symlink
+    # Replace any prior `nix ...` entry with a bare `nix` (empty mountpoint).
+    sudo sed -i '' -E '/^nix([[:space:]]|$)/d' /etc/synthetic.conf 2>/dev/null || true
+    printf 'nix\n' | sudo tee -a /etc/synthetic.conf >/dev/null \
+      || { echo "[fast] writing /etc/synthetic.conf failed" >&2; return 1; }
+    sudo "$APFS_UTIL" -t 2>&1 | sed 's/^/   apfs.util: /'           # rc is unreliable; ignore it
+    echo "   [fast] after apfs.util: /nix is $(ls -ld /nix 2>&1)"
+
+    container="$(diskutil info -plist / | plutil -extract APFSContainerReference raw - 2>/dev/null)"
+    [ -n "$container" ] || container="$(diskutil info / | awk -F': *' '/APFS Container( Reference)?:/{gsub(/ /,"",$2); print $2; exit}')"
+    [ -n "$container" ] || container="$(diskutil info / | awk -F': *' '/Part of Whole:/{gsub(/ /,"",$2); print $2; exit}')"
+    echo "   [fast] APFS container for /: ${container:-<none>}"
+    [ -n "$container" ] || { echo "[fast] could not detect APFS container" >&2; return 1; }
+
+    echo "   [fast] creating APFS volume 'Nix' on $container at /nix [timed]"
+    time sudo diskutil apfs addVolume "$container" APFS Nix -mountpoint /nix 2>&1 | sed 's/^/   addVolume: /'
+    [ "${PIPESTATUS[0]}" = 0 ] || { echo "[fast] addVolume failed" >&2; return 1; }
   fi
+  for _ in 1 2 3 4 5; do { [ -d /nix ] && [ ! -L /nix ]; } && break; sleep 1; done
+  { [ -d /nix ] && [ ! -L /nix ]; } || { echo "[fast] /nix not a real dir: $(ls -ld /nix 2>&1)" >&2; return 1; }
+  echo "--- [fast] /nix ready: $(ls -ld /nix)"
   # Give the firmlink a moment to appear.
   for _ in 1 2 3 4 5; do [ -d /nix ] && break; sleep 1; done
   [ -d /nix ] || { echo "[fast] /nix did not appear after apfs.util -t" >&2; return 1; }
