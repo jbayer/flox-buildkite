@@ -71,6 +71,13 @@ if [ -n "${MEASURE_NIX_RESTORE:-}" ]; then
     || echo "WARNING: nix-restore measurement failed (non-fatal)"
 fi
 
+# Diagnostic (opt-in MEASURE_PKG_BREAKDOWN=1): build 13 showed the store payload
+# is ~1s, so the ~40s install is scaffolding -- this finds what. Non-fatal.
+if [ -n "${MEASURE_PKG_BREAKDOWN:-}" ]; then
+  bash .buildkite/lib/macos-pkg-breakdown.sh \
+    || echo "WARNING: pkg breakdown failed (non-fatal)"
+fi
+
 # --- S3 binary cache (optional; layer-2 read + write-back) ----------------------
 # macOS is multi-user Nix, so reads go through the root daemon -- see
 # macos-s3-daemon-auth.sh. The read setup is made NON-FATAL: a macOS quirk falls
