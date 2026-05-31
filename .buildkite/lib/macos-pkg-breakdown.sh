@@ -2,42 +2,55 @@
 # Diagnostic (opt-in via MEASURE_PKG_BREAKDOWN=1): find WHERE the ~42s
 # `installer -pkg` spends its time.
 #
-# Build 13 showed the /nix store is tiny -- 324 MB, ~11.8k files, ~1s to
-# archive AND ~1s to restore -- so the 40s is NOT store extraction. It's macOS
-# install scaffolding. This dumps the .pkg's install scripts (what it actually
-# does) and runs a timestamped verbose (re)install so the slow phase is visible.
+# Build 13: the /nix store is tiny (324 MB, ~11.8k files, ~1s to restore) -- so
+# the 40s is NOT store extraction.
+# Build 14: the verbose install showed all the time is the postinstall "package
+# scripts" phase (~25s on a reinstall, + ~15s volume creation on a cold one). The
+# postinstall is a thin wrapper that execs /usr/local/share/flox/include/
+# after-install.bash -- the standard Nix MULTI-USER installer.
 #
-# Read-only-ish: it re-runs `installer` over an already-installed /nix. If that
-# reinstall is FAST, the 40s was one-time volume creation (skipped when /nix
-# already exists); if it's still ~40s, the cost is redone every time. Either
-# answer tells us whether a custom installer can avoid it. Non-fatal.
+# This dumps that real installer script + its includes (so we can see the slow
+# parts -- expected: ~32 `nixbld` users via dscl, daemon/launchd setup), and
+# greps for the suspected time sinks. The expensive timestamped verbose reinstall
+# is now opt-in via MEASURE_PKG_BREAKDOWN=verbose (it costs another ~40s).
+# Non-fatal; changes nothing permanent.
 set -uo pipefail
 
 : "${FLOX_VERSION:?set FLOX_VERSION}"
 PKG="/tmp/flox-cache/flox-${FLOX_VERSION}.aarch64-darwin.pkg"
 
-echo "+++ [breakdown] expand the .pkg and dump its install scripts"
+echo "+++ [breakdown] .pkg preinstall/postinstall scripts"
 exp="$(cd "$(mktemp -d)" && pwd -P)/pkg"
-if ! pkgutil --expand-full "$PKG" "$exp" 2>/dev/null; then
-  pkgutil --expand "$PKG" "$exp" 2>/dev/null || echo "[breakdown] pkg expand failed"
-fi
-echo "--- [breakdown] package tree"
-find "$exp" -maxdepth 3 2>/dev/null | sed "s#$exp#pkg#" | head -50
-for name in PackageInfo Distribution preinstall postinstall; do
-  while IFS= read -r found; do
-    [ -n "$found" ] || continue
-    echo "===== [breakdown] $(echo "$found" | sed "s#$exp#pkg#") ====="
-    sed -n '1,250p' "$found"
+pkgutil --expand-full "$PKG" "$exp" 2>/dev/null || pkgutil --expand "$PKG" "$exp" 2>/dev/null || echo "[breakdown] expand failed"
+for name in preinstall postinstall; do
+  while IFS= read -r f; do
+    echo "===== [breakdown] pkg/$name ====="; sed -n '1,200p' "$f"
   done < <(find "$exp" -name "$name" -type f 2>/dev/null)
+done
+sudo rm -rf "$(dirname "$exp")" 2>/dev/null || true
+
+echo ""
+echo "+++ [breakdown] the REAL installer the postinstall execs, and its includes"
+inc=/usr/local/share/flox/include
+echo "--- [breakdown] ls $inc"
+ls -la "$inc" 2>/dev/null || echo "[breakdown] $inc not found"
+for f in "$inc"/*; do
+  [ -f "$f" ] || continue
+  echo "===== [breakdown] $f ($(wc -l <"$f" 2>/dev/null) lines) ====="
+  sed -n '1,600p' "$f"
 done
 
 echo ""
-echo "+++ [breakdown] timestamped VERBOSE reinstall -- [+Ns] marks the slow phase"
-start=$(date +%s)
-sudo installer -verbose -dumplog -pkg "$PKG" -target / 2>&1 | while IFS= read -r line; do
-  printf '[+%ss] %s\n' "$(( $(date +%s) - start ))" "$line"
-done
-echo "+++ [breakdown] reinstall wall time: $(( $(date +%s) - start ))s"
+echo "+++ [breakdown] suspected time sinks across the installer scripts"
+grep -rniE 'dscl|nixbld|addVolume|createVolume|synthetic|launchctl|nix-daemon|sleep|--optimise|diskutil|createbuildusers' "$inc" 2>/dev/null | head -80
 
-sudo rm -rf "$(dirname "$exp")" 2>/dev/null || true
+if [ "${MEASURE_PKG_BREAKDOWN:-}" = "verbose" ]; then
+  echo ""
+  echo "+++ [breakdown] timestamped VERBOSE reinstall (~40s) -- [+Ns] marks the slow phase"
+  start=$(date +%s)
+  sudo installer -verbose -dumplog -pkg "$PKG" -target / 2>&1 | while IFS= read -r line; do
+    printf '[+%ss] %s\n' "$(( $(date +%s) - start ))" "$line"
+  done
+  echo "+++ [breakdown] reinstall wall time: $(( $(date +%s) - start ))s"
+fi
 echo "+++ [breakdown] done"
