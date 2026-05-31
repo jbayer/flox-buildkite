@@ -10,13 +10,13 @@
 #      (often cold / not re-attached). Flox lives under /nix/store, so an empty
 #      volume would shadow the baked-in Flox; `.buildkite/lib/ensure-nix.sh`
 #      seeds it from /opt/nix-seed when cold (no-op when warm).
-#   2. S3 binary cache -- the DURABLE layer (configured below). When the volume
-#      is cold, `flox activate` substitutes the env closure from your S3 cache
-#      (near the agents) instead of going upstream. Each build also writes its
-#      closure back, so the next cold build finds it warm there.
+#   2. S3 binary cache -- the DURABLE layer (OPTIONAL; enable via the env: block
+#      below). When the volume is cold, `flox activate` substitutes the env
+#      closure from it instead of going upstream; builds can also write their
+#      closure back (opt-in, S3_CACHE_PUSH=1).
 #   3. Flox / upstream binary cache (cache.flox.dev, cache.nixos.org) -- the
 #      final fallback when a path is in neither the volume nor the S3 cache.
-# The S3 cache is OPTIONAL: clear S3_CACHE_BUCKET to run on just the volume.
+# The S3 cache is OPTIONAL and omitted by default -- see the env: block below.
 cache:
   name: "flox-nix-store"
   # Size is a cap, not a reservation -- set it comfortably above your warm /nix
@@ -25,15 +25,17 @@ cache:
   paths:
     - "/nix"
 
-# Non-secret S3 binary-cache config (any S3-compatible store; this example was
-# tested on CloudFlare R2). Swap for your own, or clear S3_CACHE_BUCKET to
-# disable. The matching secrets (S3_CACHE_ACCESS_KEY_ID / _SECRET_ACCESS_KEY /
-# S3_CACHE_SIGNING_KEY) are cluster secrets -- see .buildkite/pipeline.s3-cache.yml.
-env:
-  S3_CACHE_BUCKET: "flox-binary-cache"
-  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
-  S3_CACHE_REGION: "auto"
-  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+# OPTIONAL binary cache (any S3-compatible store: AWS S3, R2, MinIO, …).
+# To enable, add an `env:` block with your store's values (or set them in
+# Buildkite pipeline env settings) and the cluster secrets. Omitted = cache
+# disabled; builds run on just the /nix volume + upstream. See docs/s3-cache.md
+# and the round-trip example in .buildkite/examples/pipeline.s3-cache.yml:
+#
+#   env:
+#     S3_CACHE_BUCKET: "my-binary-cache"
+#     S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
+#     S3_CACHE_REGION: "auto"
+#     S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
 
 steps:
   - label: ":mag: validate agent + flox"

@@ -1,0 +1,15 @@
+# Tier 0 -- run Flox on ANY Linux hosted (or self-hosted) queue, with NO custom
+# agent image. install-flox.sh installs Flox per build (a fast no-op once a
+# custom image or a warm /nix volume already provides it -- Tier 1).
+#
+# To use: copy this as your repo's .buildkite/pipeline.yml and point a Buildkite
+# pipeline's Steps at it (Buildkite's default already runs .buildkite/pipeline.yml).
+# Requires a `.flox/` environment in your repo.
+env:
+  FLOX_VERSION: "1.12.1"      # pin for reproducible installs
+  NIX_REMOTE: "auto"          # single-user Nix (operate on the store directly)
+steps:
+  - label: ":flox: activate"
+    command: |
+      bash .buildkite/lib/install-flox.sh
+      flox activate -- hello   # <- replace `hello` with your build command, e.g. make test

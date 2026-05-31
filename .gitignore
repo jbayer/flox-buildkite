@@ -1,0 +1,8 @@
+# Local environment / agent tooling -- not part of the repo
+.DS_Store
+.agents/
+.claude/
+.devcontainer
+devc/
+skills-lock.json
+.bk.yaml

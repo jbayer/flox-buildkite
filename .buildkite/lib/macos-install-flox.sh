@@ -83,14 +83,14 @@ fi
 # cache-and-restore installer be vs the ~42s `installer -pkg`? Non-fatal; only
 # runs when explicitly requested, so normal builds are untouched.
 if [ -n "${MEASURE_NIX_RESTORE:-}" ]; then
-  bash .buildkite/lib/macos-measure-nix-restore.sh \
+  bash .buildkite/lib/diagnostics/macos-measure-nix-restore.sh \
     || echo "WARNING: nix-restore measurement failed (non-fatal)"
 fi
 
 # Diagnostic (opt-in MEASURE_PKG_BREAKDOWN=1): build 13 showed the store payload
 # is ~1s, so the ~40s install is scaffolding -- this finds what. Non-fatal.
 if [ -n "${MEASURE_PKG_BREAKDOWN:-}" ]; then
-  bash .buildkite/lib/macos-pkg-breakdown.sh \
+  bash .buildkite/lib/diagnostics/macos-pkg-breakdown.sh \
     || echo "WARNING: pkg breakdown failed (non-fatal)"
 fi
 

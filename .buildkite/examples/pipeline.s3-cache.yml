@@ -40,10 +40,13 @@ cache:
     - "/nix"
 
 env:
-  S3_CACHE_BUCKET: "flox-binary-cache"
-  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  # Fill these with your store's values to run the demo (see docs/s3-cache.md),
+  # and add the cluster secrets (S3_CACHE_ACCESS_KEY_ID / _SECRET_ACCESS_KEY /
+  # S3_CACHE_SIGNING_KEY).
+  S3_CACHE_BUCKET: "my-binary-cache"
+  S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
   S3_CACHE_REGION: "auto"
-  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+  S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
   # This pipeline demonstrates the WRITE-BACK round-trip, so opt in (default is
   # read-only). The read-proof below depends on the push having happened.
   S3_CACHE_PUSH: "1"

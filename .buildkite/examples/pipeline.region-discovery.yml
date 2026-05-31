@@ -14,4 +14,4 @@ steps:
     # linux-small is a built-in Buildkite hosted Linux queue. Swap it for your
     # Linux hosted queue if different.
     agents: { queue: "linux-small" }
-    command: bash .buildkite/lib/region-discovery.sh
+    command: bash .buildkite/lib/diagnostics/region-discovery.sh

@@ -20,14 +20,14 @@
 env:
   # Pin the Flox version for reproducible installs. Bump deliberately.
   FLOX_VERSION: "1.12.1"
-  # S3 binary cache (layer 2). macOS has no /nix cache volume, so this is the main
-  # way to warm cold builds. Reads go through the root nix-daemon (see
-  # macos-s3-daemon-auth.sh); writes are client-side. Same non-secret config and
-  # cluster secrets as pipeline.yml. Clear S3_CACHE_BUCKET to disable.
-  S3_CACHE_BUCKET: "flox-binary-cache"
-  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
-  S3_CACHE_REGION: "auto"
-  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+  # OPTIONAL binary cache. macOS has no /nix cache volume, so this is the main way
+  # to warm cold builds. Uncomment + fill to enable (or set in Buildkite pipeline
+  # env settings), and add the cluster secrets. Left commented = cache disabled.
+  # See docs/s3-cache.md and docs/macos.md.
+  # S3_CACHE_BUCKET: "my-binary-cache"
+  # S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
+  # S3_CACHE_REGION: "auto"
+  # S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
 
 # Cache the downloaded .pkg so re-installs skip the download. This volume holds
 # ONLY the installer (~hundreds of MB) -- NOT the Nix store, which on macOS lives

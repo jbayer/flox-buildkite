@@ -64,7 +64,7 @@ RUN flox --version
 # Like SEED_PACKAGES, the Buildkite UI image editor builds this Dockerfile as-is
 # (no --build-arg), so to enable baking you edit these ARG defaults. The runtime
 # alternative that needs no image rebuild is .buildkite/lib/s3-cache-configure.sh,
-# used by .buildkite/pipeline.s3-cache.yml.
+# used by .buildkite/examples/pipeline.s3-cache.yml.
 #
 # S3_CACHE_ENDPOINT is the full endpoint URL, e.g.
 #   CloudFlare R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com  (region auto)
