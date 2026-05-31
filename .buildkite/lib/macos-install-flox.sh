@@ -99,10 +99,17 @@ fi
 # Put `nix` on PATH for the cache scripts (flox bundles nix, but the .pkg's nix
 # CLI lives in the multi-user profile, not necessarily on the job PATH).
 if ! command -v nix >/dev/null 2>&1; then
-  for d in /nix/var/nix/profiles/default/bin /run/current-system/sw/bin; do
+  for d in /nix/var/nix/profiles/default/bin /run/current-system/sw/bin /usr/local/bin; do
     if [ -x "$d/nix" ]; then export PATH="$d:$PATH"; break; fi
   done
 fi
+# Single-user fast install may not have the default-profile symlink on PATH; find
+# the nix binary directly in the store as a last resort.
+if ! command -v nix >/dev/null 2>&1; then
+  nixbin="$(ls -1 /nix/store/*/bin/nix 2>/dev/null | head -1)"
+  [ -n "$nixbin" ] && export PATH="$(dirname "$nixbin"):$PATH"
+fi
+echo "--- nix on PATH: $(command -v nix || echo 'NOT FOUND')"
 # macOS: Nix's curl uses OpenSSL, which has NO default CA bundle here, so
 # client-side TLS (`nix copy` to/from the S3 cache) fails with curlCode 60
 # ("unable to get local issuer certificate"). Point it at a CA bundle. (The
