@@ -74,6 +74,7 @@ steps:
       echo "--- /nix store size after activate (grows cold->warm as packages land)"
       du -sh /nix 2>/dev/null
 
-      # Layer 2 (write): push this build's env closure back to the S3 cache so the
-      # next cold build can substitute it. No-op when the cache is disabled.
+      # Layer 2 (write, OPT-IN): push this build's env closure back to the cache so
+      # the next cold build can substitute it. No-op unless S3_CACHE_PUSH=1 (and
+      # the cache is configured) -- writing also needs the signing-key secret.
       bash .buildkite/lib/s3-cache-push.sh

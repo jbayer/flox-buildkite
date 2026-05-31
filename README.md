@@ -46,7 +46,7 @@ it**, not to get started.
 | Agent image + Linux queue | **Required** | Flox present on every build (the baseline). |
 | `flox activate` steps | **Required** | Actually running your jobs inside Flox. |
 | **S3 binary cache** (`S3_CACHE_*`) | *Optional* | Durable cross-build warmth. Omit it → builds still work. → [Durable cache](#durable-cache-an-s3-compatible-binary-cache-nix-substituter) |
-| **Cache write-back** (push) | *Optional* | Populate the cache from builds. Default on with S3; `S3_CACHE_PUSH=0` = read-only. |
+| **Cache write-back** (push) | *Optional* | Populate the cache from builds. **Off by default** (read-only); set `S3_CACHE_PUSH=1` to enable (needs the signing key). |
 | `SEED_PACKAGES` baking | *Optional* | Pre-bake heavy runtimes so even cold builds are fast. → [Baking](#baking-common-packages-seed_packages) |
 | **Self-hosted** agents | *Alternative* | A reliably-warm `/nix` you own. → [Self-hosted](#self-hosted-agents-a-reliably-warm-nix) |
 | **macOS** agents | *Alternative* | Same idea on macOS hosted queues. → [macOS](#macos-hosted-agents) |
@@ -76,13 +76,20 @@ steps:
       flox activate -- make test
 ```
 
-**3 — Also write back to the cache** (populate it from this build; *optional*):
+**3 — Also write back to the cache** (populate it from builds; *opt-in*):
 ```yaml
-      bash .buildkite/lib/s3-cache-push.sh              # add a line after activate
+env:
+  S3_CACHE_PUSH: "1"                                  # write-back is OFF by default
+steps:
+  - command: |
+      ...
+      flox activate -- make test
+      bash .buildkite/lib/s3-cache-push.sh            # no-op unless S3_CACHE_PUSH=1
 ```
-Read-only is fine — just omit that line, or set `S3_CACHE_PUSH=0`. **Writing**
-needs the signing-key secret; **reading** a public bucket needs no creds at all.
-Full reference: [Durable cache](#durable-cache-an-s3-compatible-binary-cache-nix-substituter).
+Reading is the common case and is the default; **write-back is opt-in** because
+not every pipeline should populate the cache. **Writing** needs the signing-key
+secret; **reading** a public bucket needs no creds at all. Full reference:
+[Durable cache](#durable-cache-an-s3-compatible-binary-cache-nix-substituter).
 
 ---
 
@@ -126,8 +133,8 @@ PHASE 1 · baked into the CI base image                     [ RELIABLE ]
         locality — often cold / not re-attached.
               │ cold / not attached?  the first place to check next ↓
   2. S3 binary cache (your bucket)  hit?    →  pull (near, signed)  [ DURABLE ]
-        lives close to the agents (iad / us-east-1); each build also
-        writes its closure back, so the next cold build finds it warm.
+        lives close to the agents (iad / us-east-1); builds can also
+        write their closure back (opt-in) so later cold builds find it warm.
               │ miss?  flows up to ↓
   3. Flox / upstream binary cache   hit?    →  pull        [ ALWAYS WORKS ]
         cache.flox.dev, cache.nixos.org — the furthest, slowest hop.
@@ -387,15 +394,21 @@ scriptable with an authenticated [`bk` CLI](https://github.com/buildkite/cli)
 (`flox install buildkite-cli`, then `bk configure --org <org> --token <token>`):
 
 ```bash
-ORG=<org> CLUSTER=<cluster-slug> REPO=<git-url> PIPELINE=flox-buildkite \
+bk cluster list                            # find your cluster's UUID
+ORG=<org> CLUSTER_UUID=<uuid> REPO=<git-url> PIPELINE=flox-buildkite \
   ./scripts/bk-setup.sh --build
 ```
 
-It creates the pipeline (its default step uploads `pipeline.yml`), prints the
-`bk secret create` commands for the **optional** S3 cache, and with `--build`
-triggers a first build — then reminds you of the two UI steps it can't do (build
-the `flox-agent` image, attach it to the queue). Use `--no-s3` to hide the cache
-reminder.
+It creates the pipeline (Buildkite runs the repo's `.buildkite/pipeline.yml` by
+default), prints the `bk secret create` commands for the **optional** S3 cache,
+and with `--build` triggers + watches a first build. Use `--no-s3` to skip the
+cache reminder, `--webhook` to also set up the GitHub webhook.
+
+> **Note on prerequisites:** the `flox-agent` image and the queue's base-image
+> are **not exposed by `bk` or the REST API**, so there's no way to *pre-check*
+> them programmatically. A **green build is the prerequisite check** — that's
+> what `--build` is for. If a build stalls with no agents or `flox: not found`,
+> the image/queue steps above aren't done yet.
 
 ## Caveats
 
@@ -511,7 +524,7 @@ with a macOS-specific twist for the **read** path:
 The `/nix` cache volume is best-effort and the agent image only bakes a *fixed*
 seed. Neither reliably holds **what a given build actually produced**. The
 durable layer that does is an **S3-compatible Nix binary cache** — a
-*substituter* — that every build reads from and writes back to.
+*substituter* — that every build reads from, and (opt-in) writes back to.
 
 This works with **any S3-compatible object store**: AWS S3, CloudFlare R2,
 MinIO, Ceph RGW, Backblaze B2, and so on. You only supply a bucket, an endpoint
@@ -553,7 +566,7 @@ Non-secret, set in the pipeline `env:` block (or the Dockerfile ARGs):
 | `S3_CACHE_ENDPOINT` | full S3 endpoint URL | R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` · AWS: `https://s3.us-east-1.amazonaws.com` · MinIO: `https://minio.example.com:9000` |
 | `S3_CACHE_REGION` | region (default `auto`) | R2: `auto` · AWS/MinIO: a real region, e.g. `us-east-1` |
 | `S3_CACHE_PUBLIC_KEY` | the cache's trusted public key | `flox-binary-cache-1:base64=` |
-| `S3_CACHE_PUSH` | write-back toggle (default `1`) | `0` = read-only (needs no signing key) |
+| `S3_CACHE_PUSH` | write-back toggle (default `0` = read-only) | `1` = also push closures (needs the signing key) |
 
 ## One-time setup
 
@@ -644,10 +657,10 @@ already-warm volume.
 brand-new runner, a wiped volume, or a path the env newly needs is still a
 *miss*. `pipeline.self-hosted.yml` wires in the same S3 binary cache as
 layer 2 (the *backup cache layer* in the diagram above): on a miss, `flox
-activate` substitutes from the S3 cache before going upstream, and each build
-pushes its closure back so a fresh runner repopulates fast. It uses the same
-cluster secrets as the hosted pipeline and is optional — clear `S3_CACHE_BUCKET`
-to run on just the persistent volume. The self-hosted image makes
+activate` substitutes from the S3 cache before going upstream, and (with
+`S3_CACHE_PUSH=1`) writes its closure back so a fresh runner repopulates fast. It
+uses the same cluster secrets as the hosted pipeline and is optional — clear
+`S3_CACHE_BUCKET` to run on just the persistent volume. The self-hosted image makes
 `/etc/nix/nix.conf` writable so the runtime configure step works even when the
 base agent image runs jobs as a non-root user.
 

@@ -158,10 +158,11 @@ time flox activate -- hello
 bash .buildkite/lib/s3-cache-push.sh \
   || echo "WARNING: s3-cache-push failed; cache not updated this build"
 
-# Read-proof: pull that just-pushed closure back FROM the cache into a fresh store
-# with signatures required -- a deterministic confirmation that the client can
-# read+verify from S3 on macOS (flox hides the daemon's substituter source). Runs
-# after the push so the closure is present. Non-fatal: a WARNING here means the
-# write happened but the read-back didn't, worth investigating but not build-breaking.
-bash .buildkite/lib/s3-cache-read-proof.sh \
-  || echo "WARNING: s3-cache-read-proof failed; reads from the cache may not be working"
+# Read-proof: pull that just-pushed closure back FROM the cache with signatures
+# required -- a deterministic confirmation reads work. It pulls THIS build's
+# closure, so it only makes sense when we pushed it; gate it on write-back being
+# enabled (S3_CACHE_PUSH=1). Non-fatal.
+if [ "${S3_CACHE_PUSH:-0}" = "1" ]; then
+  bash .buildkite/lib/s3-cache-read-proof.sh \
+    || echo "WARNING: s3-cache-read-proof failed; reads from the cache may not be working"
+fi

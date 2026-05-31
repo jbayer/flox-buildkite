@@ -32,10 +32,10 @@ if [ -z "${S3_CACHE_BUCKET:-}" ]; then
   echo "--- S3 cache not configured (S3_CACHE_BUCKET empty); skipping write-back"
   exit 0
 fi
-# Write-back is OPTIONAL even with a cache: S3_CACHE_PUSH=0 gives read-only use
-# (no signing key needed). Defaults to on.
-if [ "${S3_CACHE_PUSH:-1}" = "0" ]; then
-  echo "--- S3 cache write-back disabled (S3_CACHE_PUSH=0); read-only, skipping push"
+# Write-back is OPT-IN: default is read-only. Set S3_CACHE_PUSH=1 to populate the
+# cache from this build (that path also needs the signing key).
+if [ "${S3_CACHE_PUSH:-0}" != "1" ]; then
+  echo "--- S3 cache write-back is opt-in (set S3_CACHE_PUSH=1 to enable); read-only, skipping push"
   exit 0
 fi
 : "${S3_CACHE_ENDPOINT:?set S3_CACHE_ENDPOINT (full S3 endpoint URL)}"
