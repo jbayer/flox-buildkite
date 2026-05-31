@@ -4,6 +4,93 @@ How to run [Flox](https://flox.dev) on [Buildkite](https://buildkite.com)
 — both **hosted** and **self-hosted** agents — fast and reproducibly, with
 minimal per-build install required.
 
+> **New here?** Start with **[Quick start](#quick-start-hosted-linux)** — a
+> hosted Linux pipeline running `flox activate` in ~10 minutes. Everything after
+> it (S3 cache, baking, self-hosted, macOS) is **optional depth** you add later.
+
+## Quick start (hosted Linux)
+
+**Hosted Linux agents are the default path.** This gets a green build with **no
+caching to set up** — `flox activate -- hello` printing `Hello, world!`.
+
+**Prerequisite:** a Buildkite **cluster** with a **Linux hosted queue** (arm64 or
+amd64 — the image auto-detects). No queue? Agents → cluster → **New Queue** →
+*Buildkite hosted* → Linux.
+
+1. **Build the agent image** — Agents → cluster → **Agent Images** → **New
+   Image**, name `flox-agent`. Paste `.buildkite/agent-image/Dockerfile`
+   **minus its `FROM` line** (Buildkite pins `FROM` for the queue's arch). Create.
+2. **Attach it to the queue** — Agents → cluster → **Queues** → your Linux queue
+   → **Base image** → select `flox-agent` → Save.
+3. **Create the pipeline** — Pipelines → **New Pipeline** → your repo → **Steps**:
+   ```yaml
+   steps:
+     - command: buildkite-agent pipeline upload .buildkite/pipeline.yml
+   ```
+4. **Run a build** on `main`. ✅ Green when the `:flox: activate` step prints
+   `Hello, world!`.
+
+That's the whole happy path. `pipeline.yml` *also* wires the optional S3 cache —
+but if you haven't set `S3_CACHE_*`, those steps **no-op cleanly** and the build
+still passes on the `/nix` volume + upstream cache. **Add caching when you want
+it**, not to get started.
+
+> **Prefer to script it?** With an authenticated `bk` CLI,
+> `./scripts/bk-setup.sh` creates the pipeline (and, optionally, the S3 secrets).
+> The agent image + queue stay UI steps — see [Automated setup](#automated-setup-bk).
+
+## What's optional
+
+| Piece | Status | What it's for |
+| --- | --- | --- |
+| Agent image + Linux queue | **Required** | Flox present on every build (the baseline). |
+| `flox activate` steps | **Required** | Actually running your jobs inside Flox. |
+| **S3 binary cache** (`S3_CACHE_*`) | *Optional* | Durable cross-build warmth. Omit it → builds still work. → [Durable cache](#durable-cache-an-s3-compatible-binary-cache-nix-substituter) |
+| **Cache write-back** (push) | *Optional* | Populate the cache from builds. Default on with S3; `S3_CACHE_PUSH=0` = read-only. |
+| `SEED_PACKAGES` baking | *Optional* | Pre-bake heavy runtimes so even cold builds are fast. → [Baking](#baking-common-packages-seed_packages) |
+| **Self-hosted** agents | *Alternative* | A reliably-warm `/nix` you own. → [Self-hosted](#self-hosted-agents-a-reliably-warm-nix) |
+| **macOS** agents | *Alternative* | Same idea on macOS hosted queues. → [macOS](#macos-hosted-agents) |
+
+## Pipeline building blocks
+
+Copy these into your own steps. The only thing you *need* is **activate**;
+everything else layers on.
+
+**1 — Run a command inside the Flox env** (the essential pattern):
+```yaml
+steps:
+  - command: flox activate -- make test      # any command; e.g. flox activate -- hello
+```
+
+**2 — Read from the S3 cache** (cold builds substitute prebuilt paths; *optional*):
+```yaml
+env:                                         # non-secret; swap for your store
+  S3_CACHE_BUCKET: "my-binary-cache"
+  S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
+  S3_CACHE_REGION: "auto"
+  S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
+steps:
+  - command: |
+      source .buildkite/lib/s3-cache-load-secrets.sh   # creds from cluster secrets
+      bash   .buildkite/lib/s3-cache-configure.sh       # point Nix at the cache (read)
+      flox activate -- make test
+```
+
+**3 — Also write back to the cache** (populate it from this build; *optional*):
+```yaml
+      bash .buildkite/lib/s3-cache-push.sh              # add a line after activate
+```
+Read-only is fine — just omit that line, or set `S3_CACHE_PUSH=0`. **Writing**
+needs the signing-key secret; **reading** a public bucket needs no creds at all.
+Full reference: [Durable cache](#durable-cache-an-s3-compatible-binary-cache-nix-substituter).
+
+---
+
+# Reference
+
+The rest of this README is reference material — the mental model and each
+optional piece in depth. Skim what you need.
+
 ## How the caching works (the mental model)
 
 **Flox and every package it installs live under a single directory,
@@ -293,6 +380,23 @@ steps:
 
 …or activate once for every step via an agent `environment` hook.
 
+## Automated setup (`bk`)
+
+The agent image and queue base-image are Buildkite **UI** steps, but the rest is
+scriptable with an authenticated [`bk` CLI](https://github.com/buildkite/cli)
+(`flox install buildkite-cli`, then `bk configure --org <org> --token <token>`):
+
+```bash
+ORG=<org> CLUSTER=<cluster-slug> REPO=<git-url> PIPELINE=flox-buildkite \
+  ./scripts/bk-setup.sh --build
+```
+
+It creates the pipeline (its default step uploads `pipeline.yml`), prints the
+`bk secret create` commands for the **optional** S3 cache, and with `--build`
+triggers a first build — then reminds you of the two UI steps it can't do (build
+the `flox-agent` image, attach it to the queue). Use `--no-s3` to hide the cache
+reminder.
+
 ## Caveats
 
 These concern the **Linux** hosted flow above — the `/nix` cache volume, the
@@ -449,6 +553,7 @@ Non-secret, set in the pipeline `env:` block (or the Dockerfile ARGs):
 | `S3_CACHE_ENDPOINT` | full S3 endpoint URL | R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` · AWS: `https://s3.us-east-1.amazonaws.com` · MinIO: `https://minio.example.com:9000` |
 | `S3_CACHE_REGION` | region (default `auto`) | R2: `auto` · AWS/MinIO: a real region, e.g. `us-east-1` |
 | `S3_CACHE_PUBLIC_KEY` | the cache's trusted public key | `flox-binary-cache-1:base64=` |
+| `S3_CACHE_PUSH` | write-back toggle (default `1`) | `0` = read-only (needs no signing key) |
 
 ## One-time setup
 
@@ -603,6 +708,8 @@ docker compose exec agent du -sh /nix
   lib/macos-s3-daemon-auth.sh     macOS (.pkg/multi-user path): give the root nix-daemon S3 creds + restart it
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
+scripts/
+  bk-setup.sh                     optional: create the pipeline + print S3 secret commands via an authed bk CLI
 self-hosted/                      run a self-hosted agent locally (reliably warm /nix)
   Dockerfile                      buildkite-agent + Flox
   docker-compose.yml              agent + persistent /nix named volume

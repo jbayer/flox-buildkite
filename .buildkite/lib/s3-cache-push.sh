@@ -32,6 +32,12 @@ if [ -z "${S3_CACHE_BUCKET:-}" ]; then
   echo "--- S3 cache not configured (S3_CACHE_BUCKET empty); skipping write-back"
   exit 0
 fi
+# Write-back is OPTIONAL even with a cache: S3_CACHE_PUSH=0 gives read-only use
+# (no signing key needed). Defaults to on.
+if [ "${S3_CACHE_PUSH:-1}" = "0" ]; then
+  echo "--- S3 cache write-back disabled (S3_CACHE_PUSH=0); read-only, skipping push"
+  exit 0
+fi
 : "${S3_CACHE_ENDPOINT:?set S3_CACHE_ENDPOINT (full S3 endpoint URL)}"
 : "${AWS_ACCESS_KEY_ID:?set AWS_ACCESS_KEY_ID (S3 access key id)}"
 : "${AWS_SECRET_ACCESS_KEY:?set AWS_SECRET_ACCESS_KEY (S3 secret access key)}"
