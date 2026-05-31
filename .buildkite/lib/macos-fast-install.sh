@@ -75,7 +75,10 @@ fast_install() {
   echo "--- [fast] /nix -> $(readlink /nix 2>/dev/null || echo '(dir)')"
 
   echo "+++ [fast] restore store from archive (zstd) [timed]"
-  time sudo tar --zstd -xf "$archive" -C / || { echo "[fast] restore failed" >&2; return 1; }
+  # -P: macOS /etc is a symlink to /private/etc, and bsdtar otherwise refuses to
+  # extract etc/nix/* "through a symlink". -P disables that guard (the target,
+  # /private/etc/nix, is the real, correct location).
+  time sudo tar -P --zstd -xf "$archive" -C / || { echo "[fast] restore failed" >&2; return 1; }
 
   echo "+++ [fast] hand /nix to '$me' (single-user; no daemon) [timed]"
   time sudo chown -R "$me:$grp" /nix || { echo "[fast] chown /nix failed" >&2; return 1; }
