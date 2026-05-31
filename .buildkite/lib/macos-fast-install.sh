@@ -89,8 +89,23 @@ fast_install() {
   echo "+++ [fast] single-user Nix ready"
 }
 
+# Tear down a partial /nix (failed fast install) so the .pkg fallback starts clean.
+cleanup() {
+  echo "+++ [fast] cleanup: removing any partial /nix so the .pkg can start fresh"
+  local dev
+  dev="$(diskutil info /nix 2>/dev/null | awk -F': *' '/Device Identifier/{gsub(/ /,"",$2); print $2; exit}')"
+  if [ -n "$dev" ]; then
+    sudo diskutil apfs deleteVolume "$dev" 2>&1 | sed 's/^/   /' \
+      || sudo diskutil unmountDisk force "$dev" 2>&1 | sed 's/^/   /' || true
+  fi
+  [ -L /nix ] && sudo rm -f /nix
+  sudo sed -i '' -E '/^nix([[:space:]]|$)/d' /etc/synthetic.conf 2>/dev/null || true
+  echo "--- [fast] cleanup done; /nix now: $(ls -ld /nix 2>&1)"
+}
+
 case "${1:-}" in
   --bootstrap) shift; [ -n "${1:-}" ] || { echo "usage: --bootstrap <archive>" >&2; exit 2; }; bootstrap "$1" ;;
-  "")          echo "usage: $0 [--bootstrap] <archive>" >&2; exit 2 ;;
+  --cleanup)   cleanup ;;
+  "")          echo "usage: $0 [--bootstrap|--cleanup] <archive>" >&2; exit 2 ;;
   *)           fast_install "$1" ;;
 esac

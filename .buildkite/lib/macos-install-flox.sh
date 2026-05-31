@@ -51,23 +51,28 @@ pkg_install() {
 # archive (~1s) instead of the .pkg's ~25s xz extraction, running Nix SINGLE-USER
 # (no daemon) like the Linux flow. When SINGLE_USER_NIX is set, the S3 read uses
 # the job's own creds, so the macOS daemon-auth step below is skipped.
+# FAST install is ON by default (~2s vs ~42s); set FAST_INSTALL=0 to force the
+# stock .pkg. If the fast path ever fails (a future macOS change), it cleans up
+# the partial /nix and falls back to the .pkg, so a build can't be broken by it.
+FAST_INSTALL="${FAST_INSTALL:-1}"
 SINGLE_USER_NIX=""
-if [ "${FAST_INSTALL:-}" = "1" ] && [ -f "$FAST_ARCHIVE" ]; then
+if [ "$FAST_INSTALL" = "1" ] && [ -f "$FAST_ARCHIVE" ]; then
   echo "--- FAST install: restoring single-user Nix from $FAST_ARCHIVE"
   if bash .buildkite/lib/macos-fast-install.sh "$FAST_ARCHIVE"; then
     SINGLE_USER_NIX=1
     export NIX_REMOTE=auto
     export PATH="/usr/local/bin:$PATH"
-    echo "--- FAST install OK (single-user Nix; no daemon)"
+    echo "--- FAST install OK (single-user Nix; no daemon) -- ~2s vs ~42s"
   else
-    # Experimental path: fail fast with clear diagnostics rather than fall back
-    # over a half-created /nix. Normal builds (no FAST_INSTALL) are unaffected.
-    echo "!!! FAST install failed -- see [fast] lines above. Not falling back." >&2
-    exit 1
+    echo "WARNING: fast install failed; cleaning up partial /nix and falling back to the .pkg" >&2
+    bash .buildkite/lib/macos-fast-install.sh --cleanup || true
+    pkg_install
   fi
 else
+  # No cached archive yet (or FAST_INSTALL=0): stock .pkg. When fast is enabled,
+  # bootstrap the zstd archive so the NEXT build on this cache volume is fast.
   pkg_install
-  if [ "${FAST_INSTALL:-}" = "1" ]; then
+  if [ "$FAST_INSTALL" = "1" ]; then
     echo "--- bootstrap: caching /nix as zstd for future fast installs"
     bash .buildkite/lib/macos-fast-install.sh --bootstrap "$FAST_ARCHIVE" \
       || echo "WARNING: fast-install bootstrap archive failed (non-fatal)"

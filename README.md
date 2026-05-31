@@ -315,14 +315,22 @@ up differently — see `.buildkite/pipeline.macos.yml`, which runs the helper
 built-in `macos-medium` queue. Two constraints drive the approach:
 
 - **No custom agent images.** Unlike Linux, you can't bake Flox into the base
-  image, so Flox is installed from its macOS `.pkg`. That `installer -pkg` is the
-  big per-build cost (~40s — it creates the `/nix` APFS volume, extracts the Nix
-  store, and sets up the daemon + `nixbld` users). `macos-install-flox.sh` adds a
-  **warm-agent fast path**: if flox and a live nix-daemon socket are already
-  present (the agent reused its VM), it **skips the reinstall** entirely;
-  otherwise it does the full cold install. A `COLD` log on every build means the
-  agent's `/nix` is ephemeral, so the install can't be skipped — in that case the
-  S3 cache (below) still warms the *closure*, but the install itself is the floor.
+  image, so Flox comes from its macOS `.pkg`. The stock `installer -pkg` is ~42s
+  — and a breakdown showed that's almost entirely **single-threaded xz
+  decompression** of the Nix store (the store itself is tiny: 324 MB, ~12k files,
+  ~1s with zstd). So `macos-install-flox.sh` uses a **fast install** (on by
+  default; `FAST_INSTALL=0` to disable):
+  - **Bootstrap** (first build on a fresh cache volume): run the `.pkg` once, then
+    cache `/nix` as a **zstd** archive on the persistent `/tmp/flox-cache` volume.
+  - **Fast path** (every build after): create a real `/nix` APFS volume
+    (`diskutil addVolume`, ~0.6s), **zstd-restore the store** (~1s), and run Nix
+    **single-user** — a mode the flox installer supports (no daemon, no `nixbld`
+    users), so `/nix` is owned by the job user just like Linux. **~42s → ~2s.**
+    If the fast path ever fails, it cleans up and falls back to the `.pkg`.
+
+  Single-user also means the **S3 read uses the job's own creds** (no root daemon),
+  so the fast path skips the `/var/root` daemon-auth dance entirely. (`macos-s3-
+  daemon-auth.sh` is still used on the `.pkg`/`FAST_INSTALL=0` multi-user path.)
 - **`/nix` is a system APFS volume with a daemon.** macOS Nix is multi-user
   only, so you can't bind-mount a cache volume over `/nix` as on Linux. Warmth,
   when you need it, comes from a Nix **binary cache / substituter**, not from
@@ -590,8 +598,9 @@ docker compose exec agent du -sh /nix
   lib/s3-cache-configure.sh       READ path: add the S3 cache substituter + trusted key to /etc/nix/nix.conf
   lib/s3-cache-push.sh            WRITE path: sign + push the env closure (or given paths) to the S3 cache
   lib/s3-cache-read-proof.sh      deterministic read check: pull the env closure back from the cache, sigs required
-  lib/macos-install-flox.sh       installs Flox from the macOS .pkg, wires the S3 cache, activates the env
-  lib/macos-s3-daemon-auth.sh     macOS: give the root nix-daemon S3 creds + restart it (private-bucket reads)
+  lib/macos-install-flox.sh       macOS: fast (zstd) or .pkg install of Flox, wires the S3 cache, activates
+  lib/macos-fast-install.sh       macOS fast install: bootstrap a zstd /nix archive + restore it single-user (~2s)
+  lib/macos-s3-daemon-auth.sh     macOS (.pkg/multi-user path): give the root nix-daemon S3 creds + restart it
   lib/region-discovery.sh         prints egress IP/ASN/geo; probes cloud metadata endpoints
   upload.yml                      the one-line pipeline-upload step for Buildkite settings
 self-hosted/                      run a self-hosted agent locally (reliably warm /nix)
