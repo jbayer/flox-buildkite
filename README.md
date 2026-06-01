@@ -12,7 +12,7 @@ own repo. **[docs/](docs/README.md)** has more detail.
 | | Setup | Install cost per build |
 | --- | --- | --- |
 | **Tier 0 — install per build** | a pipeline step (any Linux queue) | does the Flox install each build |
-| **Tier 1 — faster install** | bake Flox into a custom agent image (2 UI steps) | ~free (Flox already present) |
+| **Tier 1 — faster install** | bake Flox into a custom agent image (2 UI steps) | ~none (Flox will pre-installed) |
 | **+ Binary cache** *(optional)* | cluster secrets + env | composes with Tier 0 *or* 1; downloads from a durable cache |
 
 Start at **Tier 0** — it works on any Linux hosted queue with zero UI setup. Move
