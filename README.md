@@ -1,19 +1,19 @@
 # flox-buildkite
 
 Run [Flox](https://flox.dev) environments on [Buildkite](https://buildkite.com) —
-start in **one pipeline file**, then make it fast.
+start in **one pipeline file**, then optionally make it faster.
 
 This repo is a set of **composable building blocks** (small scripts + step
 snippets) plus an optional custom agent image. Copy the pieces you need into your
-own repo. Depth lives in **[docs/](docs/README.md)**.
+own repo. **[docs/](docs/README.md)** has more detail.
 
-## Choose your speed
+## Buildkite hosted agent
 
 | | Setup | Install cost per build |
 | --- | --- | --- |
-| **Tier 0 — install per build** | a pipeline step (any Linux queue) | pays the Flox install each build |
+| **Tier 0 — install per build** | a pipeline step (any Linux queue) | does the Flox install each build |
 | **Tier 1 — faster install** | a custom agent image **and/or** a `/nix` cache volume | ~free (Flox already present) |
-| **+ Binary cache** *(optional)* | cluster secrets + env | composes with Tier 0 *or* 1; warm closures from durable storage |
+| **+ Binary cache** *(optional)* | cluster secrets + env | composes with Tier 0 *or* 1; downloads from a durable cache |
 
 Start at **Tier 0** — it works on any Linux hosted queue with zero UI setup. Move
 to Tier 1 when the per-build install time bothers you. Add the binary cache
