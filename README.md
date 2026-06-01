@@ -21,8 +21,8 @@ anytime; it's an orthogonal integration that layers on either tier.
 
 ## Quick start (Tier 0)
 
-A green build on any Linux hosted queue, no custom image. You already have a
-`.flox/` environment in your repo (that's why you're here).
+A green build on any Linux hosted queue, no custom image. You probably have a
+`.flox/` environment in your repo.
 
 **Copy two files** into your repo — `.buildkite/lib/linux-install-flox.sh` and
 `.buildkite/pipeline.yml`. That `pipeline.yml` is the whole thing:
