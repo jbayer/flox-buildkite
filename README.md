@@ -29,13 +29,15 @@ A green build on any Linux hosted queue, no custom image. You probably have a
 
 ```yaml
 env:
-  NIX_REMOTE: "auto"            # single-user Nix (no daemon)
-  FLOX_SHELL: "bash"            # CI has no tty -- silences flox's shell-detect warning
-  # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
+  NIX_REMOTE: "auto"        # single-user Nix (operate on /nix/store directly; no daemon)
+  FLOX_SHELL: "bash"        # CI has no tty -- silences flox's shell-detect warning
+  # FLOX_VERSION: "1.12.1"  # optional: pin a version (default: latest stable)
 steps:
-  - command: |
-      bash .buildkite/lib/linux-install-flox.sh    # installs Flox if not already present
-      flox activate -- hello                        # <- change `hello` to your build command
+  - label: ":flox: install and activate"
+    command: |
+      set -euo pipefail
+      bash .buildkite/lib/linux-install-flox.sh   # installs Flox if not already present
+      flox activate -- hello                      # <- replace `hello` with your build command
 ```
 
 Then **create a Buildkite pipeline** pointed at your repo — its default step runs
