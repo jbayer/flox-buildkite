@@ -24,22 +24,23 @@ anytime; it's an orthogonal integration that layers on either tier.
 A green build on any Linux hosted queue, no custom image. You already have a
 `.flox/` environment in your repo (that's why you're here).
 
-1. **Copy** `.buildkite/lib/linux-install-flox.sh` into your repo.
-2. **Add a pipeline file** (e.g. `.buildkite/pipeline.yml`):
-   ```yaml
-   env:
-     NIX_REMOTE: "auto"            # single-user Nix (no daemon)
-     FLOX_SHELL: "bash"            # CI has no tty -- silences flox's shell-detect warning
-     # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
-   steps:
-     - command: |
-         bash .buildkite/lib/linux-install-flox.sh    # installs Flox if not already present
-         flox activate -- <your build command>  # e.g. make test
-   ```
-   (A copy-ready version is `.buildkite/examples/pipeline.minimal.yml`.)
-3. **Create a Buildkite pipeline** pointed at your repo — its default step runs
-   `.buildkite/pipeline.yml`. Run a build → **green** when your command runs
-   inside Flox.
+**Copy two files** into your repo — `.buildkite/lib/linux-install-flox.sh` and
+`.buildkite/pipeline.yml`. That `pipeline.yml` is the whole thing:
+
+```yaml
+env:
+  NIX_REMOTE: "auto"            # single-user Nix (no daemon)
+  FLOX_SHELL: "bash"            # CI has no tty -- silences flox's shell-detect warning
+  # FLOX_VERSION: "1.12.1"      # optional: pin a version (default: latest stable)
+steps:
+  - command: |
+      bash .buildkite/lib/linux-install-flox.sh    # installs Flox if not already present
+      flox activate -- hello                        # <- change `hello` to your build command
+```
+
+Then **create a Buildkite pipeline** pointed at your repo — its default step runs
+`.buildkite/pipeline.yml` — and run a build. ✅ **Green** when your command runs
+inside Flox.
 
 That's it: one script + one pipeline file. Prefer to script the Buildkite side?
 See [Automation](docs/automation.md) (`scripts/bk-setup.sh`).
@@ -72,8 +73,8 @@ image, so those land in the agent too.
 > **Going further:** a Buildkite `/nix` **cache volume** can also keep the
 > *packages your env pulls* warm across builds (best-effort). It's more involved
 > (it needs a "seed" so a cold volume self-heals) — see
-> **[docs/hosted-linux.md](docs/hosted-linux.md)**, which `.buildkite/pipeline.yml`
-> demonstrates end-to-end.
+> **[docs/hosted-linux.md](docs/hosted-linux.md)** and the worked example
+> **`.buildkite/examples/pipeline.cached.yml`**.
 
 ## Optional: a binary cache
 
@@ -133,7 +134,7 @@ steps:
 | --- | --- |
 | Tier 0 (install per build) | `.buildkite/lib/linux-install-flox.sh` |
 | Tier 1 — bake Flox into the agent | `.buildkite/agent-image/Dockerfile` (register it as an agent image; no repo file to copy) |
-| `/nix` cache volume *(advanced)* | `.buildkite/lib/ensure-nix.sh` + the `cache:` block in `pipeline.yml` — see [docs](docs/hosted-linux.md) |
+| `/nix` cache volume *(advanced)* | `.buildkite/lib/ensure-nix.sh` + `.buildkite/examples/pipeline.cached.yml` — see [docs](docs/hosted-linux.md) |
 | Binary cache | `.buildkite/lib/s3-cache-*.sh` |
 | macOS | `.buildkite/lib/macos-*.sh` + `.buildkite/pipeline.macos.yml` |
 
@@ -167,7 +168,7 @@ Deep-dives in **[docs/](docs/README.md)**: [caching model](docs/caching-model.md
 
 ```
 .buildkite/
-  pipeline.yml              worked Tier-1 example: validate + activate (custom image + /nix volume + optional cache)
+  pipeline.yml              the simple universal pipeline: install + activate (works Tier 0 and Tier 1)
   pipeline.macos.yml        macOS hosted queue (zstd fast install + optional cache)
   agent-image/Dockerfile    Tier-1 custom agent image: Flox + SEED_PACKAGES + /opt/nix-seed
   lib/
@@ -176,7 +177,7 @@ Deep-dives in **[docs/](docs/README.md)**: [caching model](docs/caching-model.md
     s3-cache-*.sh           binary cache: load-secrets, configure (read), push (write), read-proof
     macos-*.sh              macOS install + S3 helpers (fast install, daemon-auth)
     diagnostics/            opt-in measurement scripts (not used by normal builds)
-  examples/                 copy-ready / demo pipelines (minimal, s3-cache, self-hosted, region-discovery)
+  examples/                 advanced/demo pipelines (cached=/nix volume, s3-cache, self-hosted, region-discovery)
 scripts/bk-setup.sh         optional: create the pipeline + secrets via an authed bk CLI
 self-hosted/                run a self-hosted agent locally (reliably warm /nix)
 .flox/                      a small Flox env whose `hello` package is this repo's CI smoke-test sentinel

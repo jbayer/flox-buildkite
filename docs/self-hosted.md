@@ -10,10 +10,11 @@ you can see it end to end.
 **How it stays warm:** the agent runs as a long-lived container with a Docker
 **named volume** mounted at `/nix`. On first `up`, Docker copies the image's baked
 `/nix` (Flox + `SEED_PACKAGES`) into the empty volume, so Flox works immediately —
-and the volume persists across builds *and* `docker compose restart`. The steps
-run unchanged from the hosted setup: `pipeline.self-hosted.yml` needs no `cache:`
-block, and even the hosted `pipeline.yml` works as-is (`ensure-nix.sh` becomes a
-no-op on the already-warm volume).
+and the volume persists across builds *and* `docker compose restart`. The simple
+`.buildkite/pipeline.yml` runs as-is — `linux-install-flox.sh` no-ops (the image
+already has Flox) and `flox activate` finds the warm `/nix`. `examples/pipeline.cached.yml`
+also works (its hosted-only `cache:` block is ignored and `ensure-nix.sh` becomes
+a no-op on the already-warm volume); `pipeline.self-hosted.yml` is the tailored one.
 
 **S3 cache on a `/nix` miss.** The volume makes `/nix` reliably warm, but a
 brand-new runner, a wiped volume, or a path the env newly needs is still a *miss*.

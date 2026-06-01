@@ -9,7 +9,7 @@ that cost:
 | Speed-up | Where it lives | What it buys |
 | --- | --- | --- |
 | **Custom agent image** | `.buildkite/agent-image/Dockerfile` — installs Flox + `SEED_PACKAGES` into `/nix/store`, then stashes a copy at `/opt/nix-seed` | Flox present on **every** build, zero per-build install. |
-| **`/nix` cache volume** | `.buildkite/pipeline.yml` declares the volume; `.buildkite/lib/ensure-nix.sh` seeds it when cold | Persists whatever a build pulled into `/nix`, so later builds reuse it. |
+| **`/nix` cache volume** | `.buildkite/examples/pipeline.cached.yml` declares the volume; `.buildkite/lib/ensure-nix.sh` seeds it when cold | Persists whatever a build pulled into `/nix`, so later builds reuse it. |
 
 This is the Buildkite equivalent of GitHub's `flox/install-flox-action` (install)
 + `actions/cache` on `/nix` (warm store), done once at the image/queue level. Use
@@ -26,7 +26,7 @@ The **seed pattern** resolves this:
 1. **Image** (`agent-image/Dockerfile`): after installing Flox, stash a copy of
    the baked store outside `/nix` — `RUN cp -al /nix /opt/nix-seed` (hardlinked,
    so it costs ~no extra image space). `/opt` is not shadowed by the volume.
-2. **Volume** (`pipeline.yml`): mount the cache volume at `/nix`.
+2. **Volume** (`examples/pipeline.cached.yml`): mount the cache volume at `/nix`.
 3. **Seed on cold** (`lib/ensure-nix.sh`, called at the top of each Flox step):
    if `/usr/bin/flox` isn't executable (dangling → cold volume), copy
    `/opt/nix-seed` into `/nix`, restoring a working Flox. On a warm volume it's a
@@ -108,8 +108,10 @@ user. Because Buildkite chooses the job's user and forbids changing
    `RUN flox --version` proves the install works.
 3. **Attach it to the queue.** Agents → cluster → **Queues** → your Linux queue →
    **Base image** → select `flox-agent` → Save.
-4. **Point the pipeline at `pipeline.yml`** (Steps: `buildkite-agent pipeline
-   upload .buildkite/pipeline.yml`) and run a build.
+4. **Point the pipeline at the cached example** to use the `/nix` volume (Steps:
+   `buildkite-agent pipeline upload .buildkite/examples/pipeline.cached.yml`) and
+   run a build. (The plain `.buildkite/pipeline.yml` also works on the image —
+   it just doesn't add the volume.)
 
 > ⚠️ The Dockerfile carries the `/opt/nix-seed` stash, so if you enable the cache
 > volume after a first attempt, **rebuild the `flox-agent` image** first.

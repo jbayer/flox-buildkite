@@ -3,7 +3,7 @@
 # Why a custom image: baking Flox into the agent image means we never pay the
 # install cost per build (the equivalent of flox/install-flox-action on GitHub).
 # Warming the Nix store across builds is handled separately by a cache volume on
-# /nix (see .buildkite/pipeline.yml).
+# /nix (see .buildkite/examples/pipeline.cached.yml).
 #
 # Common packages (language runtimes, compilers, toolchains) can be baked into the
 # store at build time via the SEED_PACKAGES arg below, so they are present even on

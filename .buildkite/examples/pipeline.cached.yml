@@ -1,0 +1,88 @@
+# ADVANCED example: the Tier-1 flow with a warm /nix cache volume (the seed
+# pattern) and an optional S3 binary cache. The repo's .buildkite/pipeline.yml is
+# the simple universal pipeline; reach for THIS one only when you want the /nix
+# cache volume. See docs/hosted-linux.md.
+#
+# Prereq: the queue uses the custom agent image from .buildkite/agent-image/,
+# which (a) has Flox preinstalled and (b) stashes the baked Nix store at
+# /opt/nix-seed so the cache volume can be seeded when cold.
+#
+# Caching model (see README for the full explanation). A missing /nix path is
+# resolved in fallback order:
+#   1. /nix cache volume below -- persists /nix across builds, but BEST-EFFORT
+#      (often cold / not re-attached). Flox lives under /nix/store, so an empty
+#      volume would shadow the baked-in Flox; `.buildkite/lib/ensure-nix.sh`
+#      seeds it from /opt/nix-seed when cold (no-op when warm).
+#   2. S3 binary cache -- the DURABLE layer (OPTIONAL; enable via the env: block
+#      below). When the volume is cold, `flox activate` substitutes the env
+#      closure from it instead of going upstream; builds can also write their
+#      closure back (opt-in, S3_CACHE_PUSH=1).
+#   3. Flox / upstream binary cache (cache.flox.dev, cache.nixos.org) -- the
+#      final fallback when a path is in neither the volume nor the S3 cache.
+# The S3 cache is OPTIONAL and omitted by default -- see the env: block below.
+cache:
+  name: "flox-nix-store"
+  # Size is a cap, not a reservation -- set it comfortably above your warm /nix
+  # size (seed + the full env closure) so a large env never hits the ceiling.
+  size: "50g"
+  paths:
+    - "/nix"
+
+# OPTIONAL binary cache (any S3-compatible store: AWS S3, R2, MinIO, …).
+# To enable, add an `env:` block with your store's values (or set them in
+# Buildkite pipeline env settings) and the cluster secrets. Omitted = cache
+# disabled; builds run on just the /nix volume + upstream. See docs/s3-cache.md
+# and the round-trip example in .buildkite/examples/pipeline.s3-cache.yml:
+#
+#   env:
+#     S3_CACHE_BUCKET: "my-binary-cache"
+#     S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
+#     S3_CACHE_REGION: "auto"
+#     S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
+
+env:
+  FLOX_SHELL: "bash"   # CI has no tty -- silences flox's shell-detect warning
+
+steps:
+  - label: ":mag: validate agent + flox"
+    command: |
+      echo "--- runtime user / environment"
+      whoami
+      id
+      echo "NIX_REMOTE=$NIX_REMOTE"
+      echo "--- ensure /nix cache volume is usable (seed if cold)"
+      bash .buildkite/lib/ensure-nix.sh
+      echo "--- /nix store size"
+      du -sh /nix 2>/dev/null
+      echo "--- flox on PATH?"
+      command -v flox
+      echo "--- /nix writable?"
+      test -w /nix && echo "yes: /nix writable" || echo "NO: /nix not writable"
+
+  - wait
+
+  - label: ":flox: activate environment"
+    command: |
+      set -euo pipefail
+      bash .buildkite/lib/ensure-nix.sh
+
+      # Layer 2 (read): load cache secrets and point Flox/Nix at the S3 cache, so
+      # a cold activate substitutes the closure from there before going upstream.
+      # `source` so the exported creds persist into `flox activate` and the push.
+      # No-ops cleanly when S3_CACHE_BUCKET is empty (volume-only mode).
+      source .buildkite/lib/s3-cache-load-secrets.sh
+      bash .buildkite/lib/s3-cache-configure.sh
+
+      echo "--- /nix store size before activate"
+      du -sh /nix 2>/dev/null
+      echo "--- activate the repo environment and run the sentinel package binary"
+      echo "    (cold: substitutes from the S3 cache, then upstream; warm: instant)"
+      echo "    'hello' is the smoke-test sentinel pinned in .flox/env/manifest.toml"
+      time flox activate -- hello
+      echo "--- /nix store size after activate (grows cold->warm as packages land)"
+      du -sh /nix 2>/dev/null
+
+      # Layer 2 (write, OPT-IN): push this build's env closure back to the cache so
+      # the next cold build can substitute it. No-op unless S3_CACHE_PUSH=1 (and
+      # the cache is configured) -- writing also needs the signing-key secret.
+      bash .buildkite/lib/s3-cache-push.sh
