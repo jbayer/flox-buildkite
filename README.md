@@ -55,8 +55,8 @@ additive — it makes Flox *already there* when the build starts:
 - **`/nix` cache volume** — persist `/nix` across builds (best-effort), with the
   *seed pattern* so a cold volume self-heals (`.buildkite/lib/ensure-nix.sh`).
 
-This repo's `.buildkite/pipeline.yml` is the worked Tier-1 example (image + volume
-+ optional cache). Full runbook, seed pattern, and `SEED_PACKAGES`:
+This repo's `.buildkite/pipeline.yml` is the worked Tier-1 example 
+(image + volume + optional cache). Full runbook, seed pattern, and `SEED_PACKAGES`:
 **[docs/hosted-linux.md](docs/hosted-linux.md)**.
 
 ## Optional: a binary cache
