@@ -12,7 +12,7 @@ own repo. **[docs/](docs/README.md)** has more detail.
 | | Setup | Install cost per build |
 | --- | --- | --- |
 | **Tier 0 — install per build** | a pipeline step (any Linux queue) | does the Flox install each build |
-| **Tier 1 — faster install** | a custom agent image **and/or** a `/nix` cache volume | ~free (Flox already present) |
+| **Tier 1 — faster install** | bake Flox into a custom agent image (2 UI steps) | ~free (Flox already present) |
 | **+ Binary cache** *(optional)* | cluster secrets + env | composes with Tier 0 *or* 1; downloads from a durable cache |
 
 Start at **Tier 0** — it works on any Linux hosted queue with zero UI setup. Move
@@ -44,20 +44,36 @@ A green build on any Linux hosted queue, no custom image. You already have a
 That's it: one script + one pipeline file. Prefer to script the Buildkite side?
 See [Automation](docs/automation.md) (`scripts/bk-setup.sh`).
 
-## Make it faster (Tier 1)
+## Make it faster (Tier 1): bake Flox into the agent
 
-`linux-install-flox.sh` is a **no-op when Flox is already present**, so Tier 1 is purely
-additive — it makes Flox *already there* when the build starts:
+Tier 0 runs the Flox install on every build. To skip it, bake Flox into a
+**custom agent image**. Then `linux-install-flox.sh` sees Flox is already there
+and does nothing — **your Tier-0 pipeline keeps working unchanged, just
+install-free.** Nothing in your pipeline file changes.
 
-- **Custom agent image** — bake Flox (and heavy runtimes) into the agent so every
-  build is install-free. Register `.buildkite/agent-image/Dockerfile` as an agent
-  image and attach it to your queue.
-- **`/nix` cache volume** — persist `/nix` across builds (best-effort), with the
-  *seed pattern* so a cold volume self-heals (`.buildkite/lib/ensure-nix.sh`).
+Two one-time UI steps:
 
-This repo's `.buildkite/pipeline.yml` is the worked Tier-1 example 
-(image + volume + optional cache). Full runbook, seed pattern, and `SEED_PACKAGES`:
-**[docs/hosted-linux.md](docs/hosted-linux.md)**.
+1. **Create the image.** Agents → your cluster → **Agent Images** → **New Image**.
+   - **Name:** `flox-agent`
+   - **Dockerfile:** paste `.buildkite/agent-image/Dockerfile` **without its first
+     `FROM` line** (Buildkite fills `FROM` in for your queue's architecture).
+   - Click **Create Image** and wait for it to build (the final `RUN flox
+     --version` in the Dockerfile means a successful build already proves it works).
+2. **Attach it to your queue.** Agents → your cluster → **Queues** → your Linux
+   queue → **Base image** → select **`flox-agent`** → **Save**.
+
+Run a build. The install step now prints `Flox already installed … skipping`, and
+the build starts with Flox ready. That's Tier 1.
+
+**Bake in common tools (optional):** edit the `SEED_PACKAGES` line in the
+Dockerfile (e.g. `ARG SEED_PACKAGES="nodejs python3 go"`) before creating the
+image, so those land in the agent too.
+
+> **Going further:** a Buildkite `/nix` **cache volume** can also keep the
+> *packages your env pulls* warm across builds (best-effort). It's more involved
+> (it needs a "seed" so a cold volume self-heals) — see
+> **[docs/hosted-linux.md](docs/hosted-linux.md)**, which `.buildkite/pipeline.yml`
+> demonstrates end-to-end.
 
 ## Optional: a binary cache
 
@@ -116,8 +132,8 @@ steps:
 | You want | Copy |
 | --- | --- |
 | Tier 0 (install per build) | `.buildkite/lib/linux-install-flox.sh` |
-| Tier 1 — custom image | `.buildkite/agent-image/Dockerfile` |
-| Tier 1 — `/nix` cache volume | `.buildkite/lib/ensure-nix.sh` + the `cache:` block in `pipeline.yml` |
+| Tier 1 — bake Flox into the agent | `.buildkite/agent-image/Dockerfile` (register it as an agent image; no repo file to copy) |
+| `/nix` cache volume *(advanced)* | `.buildkite/lib/ensure-nix.sh` + the `cache:` block in `pipeline.yml` — see [docs](docs/hosted-linux.md) |
 | Binary cache | `.buildkite/lib/s3-cache-*.sh` |
 | macOS | `.buildkite/lib/macos-*.sh` + `.buildkite/pipeline.macos.yml` |
 
@@ -151,7 +167,7 @@ Deep-dives in **[docs/](docs/README.md)**: [caching model](docs/caching-model.md
 
 ```
 .buildkite/
-  pipeline.yml              worked Tier-1 example: install + activate (image + /nix volume + optional cache)
+  pipeline.yml              worked Tier-1 example: validate + activate (custom image + /nix volume + optional cache)
   pipeline.macos.yml        macOS hosted queue (zstd fast install + optional cache)
   agent-image/Dockerfile    Tier-1 custom agent image: Flox + SEED_PACKAGES + /opt/nix-seed
   lib/
