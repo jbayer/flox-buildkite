@@ -133,7 +133,7 @@ steps:
 | You want | Copy |
 | --- | --- |
 | Tier 0 (install per build) | `.buildkite/lib/linux-install-flox.sh` |
-| Tier 1 — bake Flox into the agent | `.buildkite/agent-image/Dockerfile` (register it as an agent image; no repo file to copy) |
+| Tier 1 (preinstall flox) | `.buildkite/agent-image/Dockerfile` (register it as an agent image; no repo file to copy) |
 | `/nix` cache volume *(advanced)* | `.buildkite/lib/ensure-nix.sh` + `.buildkite/examples/pipeline.cached.yml` — see [docs](docs/hosted-linux.md) |
 | Binary cache | `.buildkite/lib/s3-cache-*.sh` |
 | macOS | `.buildkite/lib/macos-*.sh` + `.buildkite/pipeline.macos.yml` |
@@ -142,9 +142,9 @@ Plus your `.flox/` environment and a pipeline `.yml` wiring the steps.
 
 ## Other platforms
 
-- **macOS hosted** — same idea; the `.pkg` install is optimized to ~2s.
+- **macOS hosted** — same idea; the install is optimized.
   → **[docs/macos.md](docs/macos.md)**
-- **Self-hosted** — a reliably-warm `/nix` you own (local Docker example).
+- **Self-hosted** — a reliably-warm `/nix` you own (Docker example).
   → **[docs/self-hosted.md](docs/self-hosted.md)**
 
 ## What's optional
