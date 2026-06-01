@@ -177,7 +177,7 @@ Deep-dives in **[docs/](docs/README.md)**: [caching model](docs/caching-model.md
     s3-cache-*.sh           binary cache: load-secrets, configure (read), push (write), read-proof
     macos-*.sh              macOS install + S3 helpers (fast install, daemon-auth)
     diagnostics/            opt-in measurement scripts (not used by normal builds)
-  examples/                 advanced/demo pipelines (cached=/nix volume, s3-cache, self-hosted, region-discovery)
+  examples/                 advanced/demo pipelines (cached=/nix volume, s3-cache, self-hosted)
 scripts/bk-setup.sh         optional: create the pipeline + secrets via an authed bk CLI
 self-hosted/                run a self-hosted agent locally (reliably warm /nix)
 .flox/                      a small Flox env whose `hello` package is this repo's CI smoke-test sentinel

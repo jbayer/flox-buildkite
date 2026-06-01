@@ -43,10 +43,10 @@ The cleaner long-term fix is upstream: if the `.pkg` shipped the store as zstd
 ## Where hosted agents run
 
 Buildkite hosted agents run in a US East Coast **private cloud** (not AWS/GCP/
-Azure). `examples/pipeline.region-discovery.yml` measures it: a hosted Linux job
-egresses from **Northern Virginia** (`iad`) on **Namespace** (`AS401483`), and
-cloud metadata endpoints answer nothing. That's why an S3 binary cache should sit
-near `iad` / `us-east-1` for low-latency cold pulls.
+Azure): a hosted Linux job egresses from **Northern Virginia** (`iad`) on
+**Namespace** (`AS401483`), and cloud metadata endpoints answer nothing. That's
+why an S3 binary cache should sit near `iad` / `us-east-1` for low-latency cold
+pulls.
 
 ## Buildkite inline-YAML interpolation
 

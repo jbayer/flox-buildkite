@@ -138,14 +138,12 @@ mount working in the meantime.
 ## Where hosted agents run (and why the S3 cache region matters)
 
 Buildkite hosted agents run in a US East Coast **private cloud** — not AWS/GCP/
-Azure. `.buildkite/examples/pipeline.region-discovery.yml` confirms this
-empirically: a hosted Linux job egresses from **Northern Virginia** (Leesburg,
-VA; IATA `iad`) on **Namespace** (`nscluster.cloud`, ASN `AS401483`), and the
-AWS/GCP/Azure metadata endpoints answer nothing.
+Azure. Empirically, a hosted Linux job egresses from **Northern Virginia**
+(Leesburg, VA; IATA `iad`) on **Namespace** (`nscluster.cloud`, ASN `AS401483`),
+and the AWS/GCP/Azure metadata endpoints answer nothing.
 
 Why it matters: when the cache volume isn't re-attached (a cold mount), the
 fallback is to re-fetch the closure from upstream. The mitigation is an
 [S3-compatible binary cache](s3-cache.md) that lives **close to `iad` /
-`us-east-1`** so cold builds pull from nearby storage at low latency. Re-run the
-region-discovery pipeline to re-check the location, since Buildkite notes the
-egress ranges can change.
+`us-east-1`** so cold builds pull from nearby storage at low latency. Buildkite
+notes the egress ranges can change, so re-check the location if cold pulls slow.
