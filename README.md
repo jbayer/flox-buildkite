@@ -47,7 +47,7 @@ See [Automation](docs/automation.md) (`scripts/bk-setup.sh`).
 ## Make it faster (Tier 1)
 
 `linux-install-flox.sh` is a **no-op when Flox is already present**, so Tier 1 is purely
-additive — it just makes Flox *already there*:
+additive — it makes Flox *already there* when the build starts:
 
 - **Custom agent image** — bake Flox (and heavy runtimes) into the agent so every
   build is install-free. Register `.buildkite/agent-image/Dockerfile` as an agent
