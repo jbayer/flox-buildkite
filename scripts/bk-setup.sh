@@ -62,7 +62,8 @@ if [ "$want_s3" = 1 ]; then
       bk secret create --cluster-uuid $CLUSTER_UUID --key S3_CACHE_SECRET_ACCESS_KEY
       bk secret create --cluster-uuid $CLUSTER_UUID --key S3_CACHE_SIGNING_KEY
 
-    ...and set the non-secret S3_CACHE_* vars in pipeline.yml's env: block.
+    ...and set the non-secret S3_CACHE_* vars in your pipeline's env: block
+    (see docs/s3-cache.md / README building blocks 3 & 4).
     Reads are the default; WRITE-BACK is opt-in (set S3_CACHE_PUSH=1, which also
     needs S3_CACHE_SIGNING_KEY). Skip all of this to run without a cache.
     --no-s3 hides this reminder.

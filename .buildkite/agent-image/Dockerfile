@@ -3,7 +3,7 @@
 # Why a custom image: baking Flox into the agent image means we never pay the
 # install cost per build (the equivalent of flox/install-flox-action on GitHub).
 # Warming the Nix store across builds is handled separately by a cache volume on
-# /nix (see .buildkite/pipeline.yml).
+# /nix (see .buildkite/examples/pipeline.cached.yml).
 #
 # Common packages (language runtimes, compilers, toolchains) can be baked into the
 # store at build time via the SEED_PACKAGES arg below, so they are present even on
@@ -64,7 +64,7 @@ RUN flox --version
 # Like SEED_PACKAGES, the Buildkite UI image editor builds this Dockerfile as-is
 # (no --build-arg), so to enable baking you edit these ARG defaults. The runtime
 # alternative that needs no image rebuild is .buildkite/lib/s3-cache-configure.sh,
-# used by .buildkite/pipeline.s3-cache.yml.
+# used by .buildkite/examples/pipeline.s3-cache.yml.
 #
 # S3_CACHE_ENDPOINT is the full endpoint URL, e.g.
 #   CloudFlare R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com  (region auto)

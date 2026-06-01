@@ -27,16 +27,16 @@
 #   - command: buildkite-agent pipeline upload .buildkite/pipeline.self-hosted.yml
 # so the real steps below live in version control.
 
-# Non-secret S3 binary-cache config -- same as the hosted pipeline.yml; the read
-# path serves /nix MISSES from the cache. Swap for your store, or clear
-# S3_CACHE_BUCKET to disable. Secrets (S3_CACHE_ACCESS_KEY_ID / _SECRET_ACCESS_KEY
-# / S3_CACHE_SIGNING_KEY) are cluster secrets fetched via buildkite-agent secret
-# get; a self-hosted agent in the cluster can read them.
+# OPTIONAL binary cache -- the read path serves /nix MISSES from it. Fill with
+# your store's values (or set in Buildkite pipeline env settings), or comment out
+# to run on just the persistent /nix volume. Secrets (S3_CACHE_ACCESS_KEY_ID /
+# _SECRET_ACCESS_KEY / S3_CACHE_SIGNING_KEY) are cluster secrets. See docs/s3-cache.md.
 env:
-  S3_CACHE_BUCKET: "flox-binary-cache"
-  S3_CACHE_ENDPOINT: "https://9892590b4348951ecded3b9ea40c8c60.r2.cloudflarestorage.com"
+  S3_CACHE_BUCKET: "my-binary-cache"
+  S3_CACHE_ENDPOINT: "https://<account>.r2.cloudflarestorage.com"
   S3_CACHE_REGION: "auto"
-  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:0N4b0lSAgNQNoqhDrFNm9ZPD6wBb+j2Xx8ibPnjSAxw="
+  S3_CACHE_PUBLIC_KEY: "my-cache-1:base64="
+  FLOX_SHELL: "bash"   # CI has no tty -- silences flox's shell-detect warning
 
 steps:
   - label: ":flox: activate (self-hosted, warm-check + S3 miss fallback)"
