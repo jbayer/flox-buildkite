@@ -9,12 +9,12 @@
 #                                     + docs/hosted-linux.md
 #   - S3 binary cache              -> docs/s3-cache.md (README building blocks 3 & 4)
 env:
-  NIX_REMOTE: "auto"        # single-user Nix (operate on the store directly; no daemon)
+  NIX_REMOTE: "auto"        # single-user Nix (operate on /nix/store directly; no daemon)
   FLOX_SHELL: "bash"        # CI has no tty -- silences flox's shell-detect warning
   # FLOX_VERSION: "1.12.1"  # optional: pin a version (default: latest stable)
 steps:
-  - label: ":flox: activate"
+  - label: ":flox: install and activate"
     command: |
       set -euo pipefail
       bash .buildkite/lib/linux-install-flox.sh   # installs Flox if not already present
-      flox activate -- hello                       # <- replace `hello` with your build command (e.g. make test)
+      flox activate -- hello                      # <- replace `hello` with your build command (e.g. make test)
